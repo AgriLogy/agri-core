@@ -4,25 +4,31 @@ Owns:
 
 * Constants the rest of the system tunes (default Kc, RAW/TAW defaults,
   rainfall-efficiency / irrigation-efficiency / canopy-density mid-bands,
-  rain-forecast trigger).
+  rain-forecast trigger, FAO-56 physical constants).
+* The pure FAO-56 hourly math: saturation vapor pressure, slope, ψ,
+  vapor-pressure deficit, solar geometry / Ra, net radiation, ASCE
+  hourly Penman-Monteith.
 * The Dr/RAW irrigation decision (``irrigation_decision_dr``) +
   supporting struct (``IrrigationDecision``).
 * The pure rainfall/depletion math (``effective_rainfall_mm``,
   ``etc_mm``, ``update_daily_depletion``, ``cumulative_dr_after_missed_days``).
-* The high-level ``field_snapshot`` handler that the agri-api Celery
-  notification path and any future FastAPI consumer call.
+* Two high-level handlers:
+    - ``compute_zone_et0(inputs)`` — one hour of ET₀ + VPD for a zone.
+    - ``field_snapshot(inputs)``    — daily status dict for the
+      notification email.
 
-Inputs come in as plain Python dataclasses (``FieldInputs``), so the
-ORM never crosses the agri-core boundary. The agri-api adapter is
-responsible for translating Django models → ``FieldInputs`` and
-returning the dict shape unchanged.
+Inputs come in as plain Python dataclasses, so the ORM never crosses
+the agri-core boundary. The agri-api adapter is responsible for
+translating Django models → DTOs.
 """
 from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from math import acos, cos, exp, log, pi, radians, sin, sqrt, tan
 from typing import Any
+from zoneinfo import ZoneInfo
 
 # ---------------------------------------------------------------------------
 # Constants — kept in sync with the agronomist's spec (back/agriBack/agronomy.py
@@ -58,6 +64,261 @@ _DECISION_PHRASE = {
     "rain_will_suffice": "Pas d'irrigation — la pluie prévue suffira",
     "no_stress": "Pas d'irrigation requise — pas d'état de stress",
 }
+
+# ---------------------------------------------------------------------------
+# FAO-56 physical constants (used by the hourly Penman-Monteith math)
+# ---------------------------------------------------------------------------
+
+ALBEDO_SHORT_CROP = 0.23
+"""FAO-56 reference grass albedo."""
+
+SIGMA = 2.043e-10
+"""Stefan-Boltzmann in HOURLY MJ units (Annex 4 eq. 39).
+
+The legacy code used 4.903e-9 (the DAILY value), which overestimated
+longwave radiation by 24×, drove Rn negative, and silently clamped ET₀
+to 0 even at noon. Tests guard against regressing to the daily value.
+"""
+
+SOLAR_CONSTANT_MJ_M2_MIN = 0.0820
+"""FAO-56 solar constant for the hourly Ra computation (eq. 28)."""
+
+LST_DEG_MOROCCO = 15.0
+"""Morocco standard meridian (UTC+1 permanent since 2018, east-positive)."""
+
+DEPLOYMENT_LOCAL_TZ = ZoneInfo("Africa/Casablanca")
+"""Deployment local time zone — for solar-time conversion in
+``compute_zone_et0``. Future per-site deployments can pass an
+explicit tz to ``Et0Inputs`` once the field is added."""
+
+CLOUD_RATIO_MIN = 0.3
+CLOUD_RATIO_MAX = 1.0
+"""Bounds on Rs/Rso, per the 2026-05-10 agronomist review."""
+
+CLOUD_FACTOR_MIN = 0.05
+"""Floor on 1.35*ratio - 0.35; guards future callers that pass non-physical input."""
+
+CROP_STAGE_PROFILES: dict[str, dict[str, float]] = {
+    "emergence":         {"zr_m": 0.10, "taw_mm": 18.0,  "raw_mm": 9.0},
+    "early_vegetative":  {"zr_m": 0.25, "taw_mm": 45.0,  "raw_mm": 22.5},
+    "vegetative_growth": {"zr_m": 0.45, "taw_mm": 81.0,  "raw_mm": 40.5},
+    "flowering":         {"zr_m": 0.70, "taw_mm": 126.0, "raw_mm": 63.0},
+    "fruit_filling":     {"zr_m": 1.00, "taw_mm": 180.0, "raw_mm": 90.0},
+}
+"""Doc § 2.2 crop-stage → effective root depth + TAW + RAW. Choosing the
+right stage at runtime is deferred (TODO: per-zone configuration)."""
+
+
+# ---------------------------------------------------------------------------
+# Pure math (FAO-56 hourly)
+# ---------------------------------------------------------------------------
+
+
+def saturation_vapor_pressure_kpa(temp_c: float) -> float:
+    """es(T) — Tetens, FAO-56 eq. 11."""
+    return 0.6108 * exp((17.27 * temp_c) / (temp_c + 237.3))
+
+
+def slope_svp_kpa_per_c(temp_c: float) -> float:
+    """Δ — slope of the saturation vapor-pressure curve (FAO-56 eq. 13)."""
+    es = saturation_vapor_pressure_kpa(temp_c)
+    return 4098.0 * es / ((temp_c + 237.3) ** 2)
+
+
+def psychrometric_constant_kpa_per_c(pressure_kpa: float) -> float:
+    """γ ≈ 0.000665 · P, FAO-56 eq. 8 (λ ≈ 2.45 MJ/kg)."""
+    return 0.000665 * pressure_kpa
+
+
+def wperm2_to_mjm2_per_hour(wperm2: float) -> float:
+    """Mean W/m² → hourly MJ/m²/h."""
+    return wperm2 * 0.0036
+
+
+def actual_vapor_pressure_kpa(temp_c: float, rh_pct: float) -> float:
+    """ea = es(T) * RH/100, with RH clamped to [1, 100] %.
+
+    The 1% floor is the agronomist's explicit ask (review 2026-05-10):
+    a sensor reading 0% RH is physically impossible and drives ea=0,
+    which inflates VPD and ET₀.
+    """
+    rh = max(1.0, min(100.0, rh_pct))
+    return saturation_vapor_pressure_kpa(temp_c) * (rh / 100.0)
+
+
+def wind_speed_at_2m(u_z_ms: float, sensor_height_m: float = 2.0) -> float:
+    """Project measured wind speed at ``sensor_height_m`` down to 2 m (FAO-56 eq. 47)."""
+    if sensor_height_m == 2.0:
+        return max(0.0, u_z_ms)
+    return max(0.0, u_z_ms * 4.87 / log(67.8 * sensor_height_m - 5.42))
+
+
+def equation_of_time_minutes(day_of_year: int) -> float:
+    """EoT in minutes (Spencer, FAO-56 Annex 2)."""
+    b = 2.0 * pi * (day_of_year - 81) / 364.0
+    return 9.87 * sin(2.0 * b) - 7.53 * cos(b) - 1.5 * sin(b)
+
+
+def solar_time_correction_hours(
+    day_of_year: int,
+    lon_deg: float,
+    lst_deg: float = LST_DEG_MOROCCO,
+) -> float:
+    """Local civil time → local solar time, in hours.
+
+    FAO-56 writes the longitude term as 4*(Lst - Lloc) with both
+    longitudes positive WEST of Greenwich. This codebase carries
+    longitudes east-positive (matching the GIS convention), so the
+    equivalent formula is 4*(lon_deg - lst_deg). The equivalence is
+    documented so the discrepancy with the source text is not flagged
+    in a future review.
+    """
+    return (4.0 * (lon_deg - lst_deg) + equation_of_time_minutes(day_of_year)) / 60.0
+
+
+def extraterrestrial_radiation_hourly_mjm2h(
+    lat_deg: float,
+    lon_deg: float,
+    day_of_year: int,
+    local_clock_hour: float,
+    lst_deg: float = LST_DEG_MOROCCO,
+) -> float:
+    """Hourly Ra (MJ/m²/h) for the hour centered on ``local_clock_hour``. FAO-56 eq. 28."""
+    phi = radians(lat_deg)
+    declination = 0.409 * sin(2.0 * pi * day_of_year / 365.0 - 1.39)
+    dr = 1.0 + 0.033 * cos(2.0 * pi * day_of_year / 365.0)
+
+    sunset_arg = max(-1.0, min(1.0, -tan(phi) * tan(declination)))
+    omega_s = acos(sunset_arg)
+
+    t_solar = local_clock_hour + solar_time_correction_hours(
+        day_of_year, lon_deg, lst_deg
+    )
+    omega = (pi / 12.0) * (t_solar - 12.0)
+    omega1 = omega - pi / 24.0
+    omega2 = omega + pi / 24.0
+
+    if omega2 <= -omega_s or omega1 >= omega_s:
+        return 0.0
+
+    omega1 = max(omega1, -omega_s)
+    omega2 = min(omega2, omega_s)
+
+    return (
+        (12.0 * 60.0 / pi)
+        * SOLAR_CONSTANT_MJ_M2_MIN
+        * dr
+        * (
+            (omega2 - omega1) * sin(phi) * sin(declination)
+            + cos(phi) * cos(declination) * (sin(omega2) - sin(omega1))
+        )
+    )
+
+
+def vpd_kpa(temp_c: float, rh_pct: float) -> float:
+    """Vapor-pressure deficit, never negative."""
+    es = saturation_vapor_pressure_kpa(temp_c)
+    ea = actual_vapor_pressure_kpa(temp_c, rh_pct)
+    return max(0.0, es - ea)
+
+
+def cloudiness_ratio(rs_mjm2h: float, rso_mjm2h: float) -> float:
+    """Rs/Rso clamped to [CLOUD_RATIO_MIN, CLOUD_RATIO_MAX]."""
+    if rso_mjm2h <= 0.0:
+        return CLOUD_RATIO_MIN
+    return max(CLOUD_RATIO_MIN, min(CLOUD_RATIO_MAX, rs_mjm2h / rso_mjm2h))
+
+
+def net_radiation_mjm2h(
+    rs_mjm2h: float,
+    ea_kpa: float,
+    temp_c: float,
+    *,
+    ra_mjm2h: float | None = None,
+    elevation_m: float = 0.0,
+) -> float:
+    """FAO-56 hourly Rn. When Ra is provided the cloudiness ratio uses
+    the [0.3, 1.0] clamp; otherwise we fall back to a 0.75 mid-band heuristic.
+    """
+    rns = (1 - ALBEDO_SHORT_CROP) * rs_mjm2h
+    tk = temp_c + 273.16
+    emiss_term = 0.34 - 0.14 * sqrt(max(0.0, ea_kpa))
+
+    if ra_mjm2h is not None and ra_mjm2h > 0:
+        rso = (0.75 + 2e-5 * elevation_m) * ra_mjm2h
+        rs_over_rso = cloudiness_ratio(rs_mjm2h, rso)
+    else:
+        rs_over_rso = 0.75
+
+    cloud_term = max(CLOUD_FACTOR_MIN, 1.35 * rs_over_rso - 0.35)
+    rnl = SIGMA * (tk**4) * emiss_term * cloud_term
+    return rns - rnl
+
+
+def soil_heat_flux_mjm2h(rn_mjm2h: float, *, daytime: bool) -> float:
+    """ASCE/FAO hourly G ≈ 0.1·Rn day, 0.5·Rn night."""
+    return 0.1 * rn_mjm2h if daytime else 0.5 * rn_mjm2h
+
+
+def asce_hourly_short_crop_coeffs(daytime: bool) -> tuple[float, float]:
+    """ASCE standardized hourly reference (short crop): (Cn, Cd)."""
+    return (37.0, 0.24 if daytime else 0.96)
+
+
+def is_daytime(rs_mjm2h: float) -> bool:
+    """Daytime when Rs > 0. Using Rs (not Rn) avoids flipping the regime
+    on cool humid days where the longwave overshoot briefly drives Rn < 0.
+    """
+    return rs_mjm2h > 0.0
+
+
+def penman_monteith_hourly_mm(
+    *,
+    temp_c: float,
+    rh_pct: float,
+    wind_ms: float,
+    pressure_kpa: float,
+    rs_mjm2h: float,
+    ra_mjm2h: float | None = None,
+    elevation_m: float = 0.0,
+    wind_height_m: float = 2.0,
+) -> dict[str, float]:
+    """One hour of FAO-56 Penman-Monteith ET₀ (mm/h) and VPD.
+
+    Returns a dict with intermediates so callers / tests can inspect
+    them. ``ra_mjm2h`` should be supplied (via
+    ``extraterrestrial_radiation_hourly_mjm2h``) whenever lat/lon are
+    known; with None the function falls back to the 0.75 heuristic.
+    """
+    es = saturation_vapor_pressure_kpa(temp_c)
+    ea = actual_vapor_pressure_kpa(temp_c, rh_pct)
+    delta = slope_svp_kpa_per_c(temp_c)
+    gamma = psychrometric_constant_kpa_per_c(pressure_kpa)
+
+    rn = net_radiation_mjm2h(
+        rs_mjm2h, ea, temp_c, ra_mjm2h=ra_mjm2h, elevation_m=elevation_m
+    )
+    daytime = is_daytime(rs_mjm2h)
+    g = soil_heat_flux_mjm2h(rn, daytime=daytime)
+    cn, cd = asce_hourly_short_crop_coeffs(daytime)
+
+    u2 = wind_speed_at_2m(wind_ms, wind_height_m)
+    numerator = 0.408 * delta * (rn - g) + gamma * (cn / (temp_c + 273.0)) * u2 * (
+        es - ea
+    )
+    denominator = delta + gamma * (1.0 + cd * u2)
+    et0_mm_per_h = max(0.0, numerator / max(denominator, 1e-6))
+
+    return {
+        "et0_mm_per_h": et0_mm_per_h,
+        "vpd_kpa": max(0.0, es - ea),
+        "delta": delta,
+        "gamma": gamma,
+        "rn_mjm2h": rn,
+        "g_mjm2h": g,
+        "daytime": daytime,
+        "u2_ms": u2,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +574,112 @@ def _format_decision(
 
 
 # ---------------------------------------------------------------------------
+# compute_zone_et0 handler — one hour of ET₀ + VPD for a zone
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Et0Inputs:
+    """One hour of weather averages plus zone identity, in sensor units.
+
+    The adapter is responsible for fetching/averaging readings and
+    packing them here; the handler does the FAO-56 math.
+    ``rs_wm2`` arrives in W/m² and ``pressure_hpa`` in hPa; the
+    handler does the unit conversions to MJ/m²/h and kPa internally
+    so the caller doesn't have to.
+    """
+
+    zone_id: int
+    user_id: int
+    timestamp: datetime
+    """End of the hour window the inputs cover. Returned on ``ZoneEt0``."""
+    temp_c: float | None
+    rh_pct: float | None
+    wind_ms: float | None
+    rs_wm2: float | None
+    pressure_hpa: float | None
+    latitude: float | None = None
+    longitude: float | None = None
+    elevation_m: float = 0.0
+    wind_height_m: float = 2.0
+
+
+@dataclass
+class ZoneEt0:
+    """Per-zone ET₀ / VPD result of ``compute_zone_et0``."""
+
+    zone_id: int
+    user_id: int
+    timestamp: datetime
+    et0_mm_per_h: float
+    vpd_kpa: float
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "zone_id": self.zone_id,
+            "user_id": self.user_id,
+            "timestamp": self.timestamp.isoformat(),
+            "et0_mm_per_h": self.et0_mm_per_h,
+            "vpd_kpa": self.vpd_kpa,
+        }
+
+
+def compute_zone_et0(inputs: Et0Inputs) -> ZoneEt0 | None:
+    """One hour of FAO-56 Penman-Monteith ET₀ + VPD for the zone.
+
+    Returns ``None`` if any of the required weather inputs is missing
+    for the slot (sensor outage / no data). When ``latitude`` and
+    ``longitude`` are supplied, the extraterrestrial radiation Ra is
+    computed for the midpoint of the hour window using local civil
+    time at ``DEPLOYMENT_LOCAL_TZ``; otherwise net radiation falls
+    back to the 0.75 mid-band heuristic.
+    """
+    if any(
+        v is None
+        for v in (
+            inputs.temp_c,
+            inputs.rh_pct,
+            inputs.wind_ms,
+            inputs.rs_wm2,
+            inputs.pressure_hpa,
+        )
+    ):
+        return None
+
+    ra_mjm2h: float | None = None
+    if inputs.latitude is not None and inputs.longitude is not None:
+        midpoint_local = (
+            inputs.timestamp - timedelta(minutes=30)
+        ).astimezone(DEPLOYMENT_LOCAL_TZ)
+        ra_mjm2h = extraterrestrial_radiation_hourly_mjm2h(
+            lat_deg=inputs.latitude,
+            lon_deg=inputs.longitude,
+            day_of_year=midpoint_local.timetuple().tm_yday,
+            local_clock_hour=midpoint_local.hour
+            + midpoint_local.minute / 60.0,
+        )
+
+    result = penman_monteith_hourly_mm(
+        temp_c=inputs.temp_c,
+        rh_pct=inputs.rh_pct,
+        wind_ms=inputs.wind_ms,
+        pressure_kpa=inputs.pressure_hpa * 0.1,
+        rs_mjm2h=wperm2_to_mjm2_per_hour(inputs.rs_wm2),
+        ra_mjm2h=ra_mjm2h,
+        elevation_m=inputs.elevation_m,
+        wind_height_m=inputs.wind_height_m,
+    )
+
+    return ZoneEt0(
+        zone_id=inputs.zone_id,
+        user_id=inputs.user_id,
+        timestamp=inputs.timestamp,
+        et0_mm_per_h=result["et0_mm_per_h"],
+        vpd_kpa=result["vpd_kpa"],
+    )
+
+
+# ---------------------------------------------------------------------------
 # field_snapshot handler — high-level entry point used by notifications
 # ---------------------------------------------------------------------------
 
@@ -492,7 +859,7 @@ def field_snapshot(inputs: FieldInputs) -> dict[str, Any]:
 
 
 __all__ = [
-    # Constants
+    # Doc § 3-4 constants
     "DEFAULT_KC",
     "DEFAULT_CRITICAL_SOIL_MOISTURE_PCT",
     "DEFAULT_RAINFALL_EFFICIENCY",
@@ -500,15 +867,46 @@ __all__ = [
     "DEFAULT_CANOPY_DENSITY_KR",
     "DEFAULT_DURATION_SPLIT_THRESHOLD_HR",
     "RAIN_FORECAST_TRIGGER_MM",
-    # Pure math
+    "CROP_STAGE_PROFILES",
+    # FAO-56 physical constants
+    "ALBEDO_SHORT_CROP",
+    "SIGMA",
+    "SOLAR_CONSTANT_MJ_M2_MIN",
+    "LST_DEG_MOROCCO",
+    "DEPLOYMENT_LOCAL_TZ",
+    "CLOUD_RATIO_MIN",
+    "CLOUD_RATIO_MAX",
+    "CLOUD_FACTOR_MIN",
+    # FAO-56 hourly math
+    "saturation_vapor_pressure_kpa",
+    "slope_svp_kpa_per_c",
+    "psychrometric_constant_kpa_per_c",
+    "wperm2_to_mjm2_per_hour",
+    "actual_vapor_pressure_kpa",
+    "wind_speed_at_2m",
+    "equation_of_time_minutes",
+    "solar_time_correction_hours",
+    "extraterrestrial_radiation_hourly_mjm2h",
+    "vpd_kpa",
+    "cloudiness_ratio",
+    "net_radiation_mjm2h",
+    "soil_heat_flux_mjm2h",
+    "asce_hourly_short_crop_coeffs",
+    "is_daytime",
+    "penman_monteith_hourly_mm",
+    # Pure water-balance math
     "effective_rainfall_mm",
     "etc_mm",
     "update_daily_depletion",
     "cumulative_dr_after_missed_days",
-    # Decision
+    # Irrigation decision
     "IrrigationDecision",
     "irrigation_decision_dr",
-    # Handler
+    # ET₀ handler
+    "Et0Inputs",
+    "ZoneEt0",
+    "compute_zone_et0",
+    # Field-snapshot handler
     "ZoneParams",
     "SensorAggregates",
     "FieldInputs",
