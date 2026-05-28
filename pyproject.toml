@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agri-core"
-version = "0.0.1"
+version = "0.1.0"
 description = "Framework-agnostic business logic and HTTP endpoint handlers for the Agrilogy backend. Shared by agri-api today; usable by a future FastAPI service or standalone ingest worker without modification."
 requires-python = ">=3.12"
 dependencies = [
