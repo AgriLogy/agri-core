@@ -16,7 +16,7 @@ dependencies = [
     # fetch it. For local co-dev against an unreleased agri-db, override with
     # `uv pip install -e ../agri-db`. sqlalchemy is pinned explicitly since
     # this package imports it directly (psycopg arrives transitively).
-    "agri-db @ git+https://github.com/AgriLogy/agri-db.git@0.1.0",
+    "agri-db @ git+https://github.com/AgriLogy/agri-db.git@0.1.1",
     "sqlalchemy>=2.0",
 ]
 
