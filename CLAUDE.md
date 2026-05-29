@@ -9,14 +9,17 @@ The Agrilogy backend's framework-agnostic shared library. Holds
 business logic and endpoint handlers. Consumed by `agri-api` today;
 usable by a future FastAPI service or ingest worker.
 
-**Tech:** Python 3.12 · pydantic · uv · setuptools (src/ layout)
+**Tech:** Python 3.12 · pydantic · SQLAlchemy 2.0 · uv · setuptools (src/ layout)
+
+DB access lives in `agri.core.database` (`AgriMainDBClient` + `session_scope`)
+over the ORM models in `agri-db`. SQLAlchemy is allowed here; Django/DRF are not.
 
 ## Sibling repos
 
 | Repo | Path | Role |
 |---|---|---|
-| `agri-api` | `../agri-api/` | HTTP API service (Django+DRF). Pins `agri-core` as a git dep. |
-| `agri-db` | `../agri-db/` | Postgres schema-of-record (Alembic + SQLAlchemy). |
+| `agri-api` | `../agri-api/` | HTTP API service (Django+DRF). Depends on `agri-core` (→ path dep, no versioning). |
+| `agri-db` | `../agri-db/` | Postgres schema-of-record (Alembic + SQLAlchemy). Runtime dep of agri-core via `[tool.uv.sources]`. |
 | `agri-front` | `../agri-front/` | Web app. |
 
 ## ⚠ Read first
