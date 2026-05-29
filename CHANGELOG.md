@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.6.1 (2026-05-29)
+
+### Bug Fixes
+
+- **deps**: Pin agri-db@0.1.1 + add pre-push gate
+  ([#16](https://github.com/AgriLogy/agri-core/pull/16),
+  [`53b81c9`](https://github.com/AgriLogy/agri-core/commit/53b81c932d3ca0c16336074ffe3b645d44ff91c5))
+
+Closes #15
+
+
 ## v0.6.0 (2026-05-29)
 
 ### Features
