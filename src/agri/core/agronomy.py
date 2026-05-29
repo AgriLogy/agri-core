@@ -12,23 +12,31 @@ Owns:
   supporting struct (``IrrigationDecision``).
 * The pure rainfall/depletion math (``effective_rainfall_mm``,
   ``etc_mm``, ``update_daily_depletion``, ``cumulative_dr_after_missed_days``).
-* Two high-level handlers:
+* Pure, DTO-in handlers:
     - ``compute_zone_et0(inputs)`` — one hour of ET₀ + VPD for a zone.
     - ``field_snapshot(inputs)``    — daily status dict for the
       notification email.
+* DB-backed entry points (fetch + compute) that take a SQLAlchemy
+  ``Session`` and query ``agri.db`` directly:
+    - ``compute_et0_for_zone(session, zone_id)``.
 
-Inputs come in as plain Python dataclasses, so the ORM never crosses
-the agri-core boundary. The agri-api adapter is responsible for
-translating Django models → DTOs.
+The pure ``*_et0(inputs)`` / ``field_snapshot(inputs)`` functions stay
+DTO-in so the FAO-56 math is unit-testable without a database. The
+DB-backed entry points fetch via ``AgriMainDBClient`` and delegate to
+them — core now owns DB access (see memory ``agri-core-architecture``).
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from math import acos, cos, exp, log, pi, radians, sin, sqrt, tan
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 # ---------------------------------------------------------------------------
 # Constants — kept in sync with the agronomist's spec (back/agriBack/agronomy.py
@@ -99,11 +107,11 @@ CLOUD_FACTOR_MIN = 0.05
 """Floor on 1.35*ratio - 0.35; guards future callers that pass non-physical input."""
 
 CROP_STAGE_PROFILES: dict[str, dict[str, float]] = {
-    "emergence":         {"zr_m": 0.10, "taw_mm": 18.0,  "raw_mm": 9.0},
-    "early_vegetative":  {"zr_m": 0.25, "taw_mm": 45.0,  "raw_mm": 22.5},
-    "vegetative_growth": {"zr_m": 0.45, "taw_mm": 81.0,  "raw_mm": 40.5},
-    "flowering":         {"zr_m": 0.70, "taw_mm": 126.0, "raw_mm": 63.0},
-    "fruit_filling":     {"zr_m": 1.00, "taw_mm": 180.0, "raw_mm": 90.0},
+    "emergence": {"zr_m": 0.10, "taw_mm": 18.0, "raw_mm": 9.0},
+    "early_vegetative": {"zr_m": 0.25, "taw_mm": 45.0, "raw_mm": 22.5},
+    "vegetative_growth": {"zr_m": 0.45, "taw_mm": 81.0, "raw_mm": 40.5},
+    "flowering": {"zr_m": 0.70, "taw_mm": 126.0, "raw_mm": 63.0},
+    "fruit_filling": {"zr_m": 1.00, "taw_mm": 180.0, "raw_mm": 90.0},
 }
 """Doc § 2.2 crop-stage → effective root depth + TAW + RAW. Choosing the
 right stage at runtime is deferred (TODO: per-zone configuration)."""
@@ -191,9 +199,7 @@ def extraterrestrial_radiation_hourly_mjm2h(
     sunset_arg = max(-1.0, min(1.0, -tan(phi) * tan(declination)))
     omega_s = acos(sunset_arg)
 
-    t_solar = local_clock_hour + solar_time_correction_hours(
-        day_of_year, lon_deg, lst_deg
-    )
+    t_solar = local_clock_hour + solar_time_correction_hours(day_of_year, lon_deg, lst_deg)
     omega = (pi / 12.0) * (t_solar - 12.0)
     omega1 = omega - pi / 24.0
     omega2 = omega + pi / 24.0
@@ -295,17 +301,13 @@ def penman_monteith_hourly_mm(
     delta = slope_svp_kpa_per_c(temp_c)
     gamma = psychrometric_constant_kpa_per_c(pressure_kpa)
 
-    rn = net_radiation_mjm2h(
-        rs_mjm2h, ea, temp_c, ra_mjm2h=ra_mjm2h, elevation_m=elevation_m
-    )
+    rn = net_radiation_mjm2h(rs_mjm2h, ea, temp_c, ra_mjm2h=ra_mjm2h, elevation_m=elevation_m)
     daytime = is_daytime(rs_mjm2h)
     g = soil_heat_flux_mjm2h(rn, daytime=daytime)
     cn, cd = asce_hourly_short_crop_coeffs(daytime)
 
     u2 = wind_speed_at_2m(wind_ms, wind_height_m)
-    numerator = 0.408 * delta * (rn - g) + gamma * (cn / (temp_c + 273.0)) * u2 * (
-        es - ea
-    )
+    numerator = 0.408 * delta * (rn - g) + gamma * (cn / (temp_c + 273.0)) * u2 * (es - ea)
     denominator = delta + gamma * (1.0 + cd * u2)
     et0_mm_per_h = max(0.0, numerator / max(denominator, 1e-6))
 
@@ -326,9 +328,7 @@ def penman_monteith_hourly_mm(
 # ---------------------------------------------------------------------------
 
 
-def effective_rainfall_mm(
-    rain_mm: float, alpha: float = DEFAULT_RAINFALL_EFFICIENCY
-) -> float:
+def effective_rainfall_mm(rain_mm: float, alpha: float = DEFAULT_RAINFALL_EFFICIENCY) -> float:
     """Pe = α · P — the fraction of rainfall that reaches the root zone."""
     return max(0.0, alpha * rain_mm)
 
@@ -369,9 +369,7 @@ def cumulative_dr_after_missed_days(
     """Doc § 4.3 catch-up: roll Dr forward over a sequence of skipped days."""
     et0_list = list(et0_per_day_mm)
     rain_list = list(rain_per_day_mm)
-    etc_cumul = sum(
-        etc_mm(e, kc, permeability_loss_mm=permeability_loss_mm) for e in et0_list
-    )
+    etc_cumul = sum(etc_mm(e, kc, permeability_loss_mm=permeability_loss_mm) for e in et0_list)
     pe_cumul = sum(effective_rainfall_mm(r, alpha) for r in rain_list)
     effective = max(0.0, etc_cumul - pe_cumul)
     return max(0.0, dr_baseline_mm + effective)
@@ -390,13 +388,13 @@ class IrrigationDecision:
     # One of: "stress", "soil_moisture_low", "no_stress", "rain_will_suffice",
     # "complementary".
     reason: str
-    net_mm: float                          # In_net — net depth to bring to FC
-    gross_mm: float                        # Ig — net / efficiency × Kr
-    volume_m3: float                       # gross applied to zone area
-    duration_hr: float                     # volume / flow_rate
-    morning_volume_m3: float | None        # split when duration > threshold
+    net_mm: float  # In_net — net depth to bring to FC
+    gross_mm: float  # Ig — net / efficiency × Kr
+    volume_m3: float  # gross applied to zone area
+    duration_hr: float  # volume / flow_rate
+    morning_volume_m3: float | None  # split when duration > threshold
     evening_volume_m3: float | None
-    capped_to_daily_max: bool              # True if volume hit max_water_per_day
+    capped_to_daily_max: bool  # True if volume hit max_water_per_day
 
 
 def _build_irrigation_struct(
@@ -481,10 +479,7 @@ def irrigation_decision_dr(
     at max_water_per_day, split morning/evening if duration > threshold.
     """
     soil_stressed = dr_today_mm >= raw_mm
-    soil_dry = (
-        soil_moisture_pct is not None
-        and soil_moisture_pct < critical_moisture_pct
-    )
+    soil_dry = soil_moisture_pct is not None and soil_moisture_pct < critical_moisture_pct
 
     if precipitation_forecast_mm > RAIN_FORECAST_TRIGGER_MM:
         pe_forecast = effective_rainfall_mm(precipitation_forecast_mm, alpha_rain)
@@ -546,10 +541,7 @@ def _format_decision(
     if decision is not None:
         head = _DECISION_PHRASE.get(decision.reason, decision.reason)
         if decision.irrigate:
-            tail = (
-                f" — {decision.volume_m3:.2f} m³ "
-                f"(~{decision.duration_hr * 60:.0f} min)."
-            )
+            tail = f" — {decision.volume_m3:.2f} m³ (~{decision.duration_hr * 60:.0f} min)."
             if decision.capped_to_daily_max:
                 tail += " Plafonné à max_water_per_day."
             return head + tail
@@ -648,15 +640,12 @@ def compute_zone_et0(inputs: Et0Inputs) -> ZoneEt0 | None:
 
     ra_mjm2h: float | None = None
     if inputs.latitude is not None and inputs.longitude is not None:
-        midpoint_local = (
-            inputs.timestamp - timedelta(minutes=30)
-        ).astimezone(DEPLOYMENT_LOCAL_TZ)
+        midpoint_local = (inputs.timestamp - timedelta(minutes=30)).astimezone(DEPLOYMENT_LOCAL_TZ)
         ra_mjm2h = extraterrestrial_radiation_hourly_mjm2h(
             lat_deg=inputs.latitude,
             lon_deg=inputs.longitude,
             day_of_year=midpoint_local.timetuple().tm_yday,
-            local_clock_hour=midpoint_local.hour
-            + midpoint_local.minute / 60.0,
+            local_clock_hour=midpoint_local.hour + midpoint_local.minute / 60.0,
         )
 
     result = penman_monteith_hourly_mm(
@@ -679,6 +668,62 @@ def compute_zone_et0(inputs: Et0Inputs) -> ZoneEt0 | None:
     )
 
 
+def compute_et0_for_zone(
+    session: Session,
+    zone_id: int,
+    *,
+    end: datetime | None = None,
+) -> ZoneEt0 | None:
+    """DB-backed ET₀: fetch the previous full hour of weather averages
+    for the zone, then run :func:`compute_zone_et0`.
+
+    This is the fetch-and-compute entry point — it owns the DB access
+    that used to live in the agri-api Django adapter. The caller passes
+    an active SQLAlchemy ``Session`` (e.g. from
+    ``agri.core.database.session_scope``). ``end`` defaults to the
+    current UTC time, floored to the hour; the window is ``[end-1h, end)``.
+
+    Returns ``None`` when the zone is unknown or a required weather
+    input is missing for the slot (mirrors ``compute_zone_et0``).
+    """
+    # Local imports keep the pure-math module importable without the ORM.
+    from agri.core.database.client import AgriMainDBClient
+    from agri.db.analytics import (
+        AnalyticsHumidityweather,
+        AnalyticsPressureweather,
+        AnalyticsSolarradiation,
+        AnalyticsTemperatureweather,
+        AnalyticsWindspeed,
+        AnalyticsZone,
+    )
+
+    end = (end or datetime.now(UTC)).replace(minute=0, second=0, microsecond=0)
+    start = end - timedelta(hours=1)
+
+    zone = AgriMainDBClient.get(session, AnalyticsZone, zone_id)
+    if zone is None:
+        return None
+
+    def avg(model: type) -> float | None:
+        return AgriMainDBClient.average_value(session, model, zone_id=zone_id, start=start, end=end)
+
+    user = zone.user
+    return compute_zone_et0(
+        Et0Inputs(
+            zone_id=zone.id,
+            user_id=zone.user_id,
+            timestamp=end,
+            temp_c=avg(AnalyticsTemperatureweather),
+            rh_pct=avg(AnalyticsHumidityweather),
+            wind_ms=avg(AnalyticsWindspeed),
+            rs_wm2=avg(AnalyticsSolarradiation),
+            pressure_hpa=avg(AnalyticsPressureweather),
+            latitude=user.latitude if user is not None else None,
+            longitude=user.longitude if user is not None else None,
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # field_snapshot handler — high-level entry point used by notifications
 # ---------------------------------------------------------------------------
@@ -689,12 +734,12 @@ class ZoneParams:
     """The agronomy-relevant subset of a Zone, packed by the agri-api adapter."""
 
     name: str | None
-    area_m2: float | None                       # zone.space
-    raw_mm: float | None                        # zone.soil_param_RAW
-    taw_mm: float | None                        # zone.soil_param_TAW
-    pomp_flow_rate_l_per_s: float | None        # zone.pomp_flow_rate (L/s)
-    irrigation_water_quantity_l: float | None   # zone.irrigation_water_quantity (L)
-    critical_moisture_pct: float | None         # zone.critical_moisture_threshold
+    area_m2: float | None  # zone.space
+    raw_mm: float | None  # zone.soil_param_RAW
+    taw_mm: float | None  # zone.soil_param_TAW
+    pomp_flow_rate_l_per_s: float | None  # zone.pomp_flow_rate (L/s)
+    irrigation_water_quantity_l: float | None  # zone.irrigation_water_quantity (L)
+    critical_moisture_pct: float | None  # zone.critical_moisture_threshold
 
 
 @dataclass
@@ -730,8 +775,7 @@ class FieldInputs:
 
 
 _NO_ZONE_MESSAGE = (
-    "Aucune zone configurée pour ce compte — créez une zone pour"
-    " activer les recommandations."
+    "Aucune zone configurée pour ce compte — créez une zone pour activer les recommandations."
 )
 
 
@@ -778,19 +822,13 @@ def field_snapshot(inputs: FieldInputs) -> dict[str, Any]:
     once the template no longer reaches into it.
     """
     if inputs.zone is None or inputs.sensors is None:
-        return _empty_snapshot(
-            inputs.date_today, irrigation_decision=_NO_ZONE_MESSAGE
-        )
+        return _empty_snapshot(inputs.date_today, irrigation_decision=_NO_ZONE_MESSAGE)
 
     zone = inputs.zone
     sensors = inputs.sensors
 
     kc_used = DEFAULT_KC
-    et0_kc_mm = (
-        sensors.et0_today_mm * kc_used
-        if sensors.et0_today_mm is not None
-        else None
-    )
+    et0_kc_mm = sensors.et0_today_mm * kc_used if sensors.et0_today_mm is not None else None
 
     decision: IrrigationDecision | None = None
     if (
@@ -850,9 +888,7 @@ def field_snapshot(inputs: FieldInputs) -> dict[str, Any]:
         "taw_mm": zone.taw_mm,
         "decision_reason": decision.reason if decision else None,
         "recommended_volume_m3": decision.volume_m3 if decision else None,
-        "recommended_duration_min": (
-            decision.duration_hr * 60.0 if decision else None
-        ),
+        "recommended_duration_min": (decision.duration_hr * 60.0 if decision else None),
         "morning_volume_m3": decision.morning_volume_m3 if decision else None,
         "evening_volume_m3": decision.evening_volume_m3 if decision else None,
     }

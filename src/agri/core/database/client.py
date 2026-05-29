@@ -14,9 +14,10 @@ models in ``agri.db``.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TypeVar
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -55,3 +56,30 @@ class AgriMainDBClient:
     def exists(session: Session, model: type[ModelT], *criteria: ColumnElement[bool]) -> bool:
         """``True`` if at least one row matches ``criteria``."""
         return session.scalars(select(model).where(*criteria).limit(1)).first() is not None
+
+    # --- sensor-reading helpers (every agri.db reading model has
+    # value / zone_id / timestamp columns) ---------------------------------
+
+    @staticmethod
+    def average_value(
+        session: Session,
+        model: type[ModelT],
+        *,
+        zone_id: int,
+        start: datetime,
+        end: datetime,
+    ) -> float | None:
+        """Mean of ``model.value`` over ``[start, end)`` for ``zone_id``.
+
+        Mirrors the Django ``_avg`` adapter helper: SQL ``AVG`` ignores
+        NULL values and yields ``NULL`` (→ ``None``) when no rows match.
+        ``model`` must expose ``value`` / ``zone_id`` / ``timestamp``
+        columns, which every sensor-reading model in ``agri.db`` does.
+        """
+        return session.scalar(
+            select(func.avg(model.value)).where(
+                model.zone_id == zone_id,
+                model.timestamp >= start,
+                model.timestamp < end,
+            )
+        )
