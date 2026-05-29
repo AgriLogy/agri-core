@@ -4,7 +4,6 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "agri-core"
-version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "agri-db" },
@@ -20,7 +19,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agri-db", editable = "../agri-db" },
+    { name = "agri-db", git = "https://github.com/AgriLogy/agri-db.git?rev=0.1.0" },
     { name = "pydantic", specifier = ">=2.10" },
     { name = "sqlalchemy", specifier = ">=2.0" },
 ]
@@ -34,28 +33,13 @@ dev = [
 [[package]]
 name = "agri-db"
 version = "0.1.0"
-source = { editable = "../agri-db" }
+source = { git = "https://github.com/AgriLogy/agri-db.git?rev=0.1.0#020902db28520e7abadc4ae0dae51e1a4f6c015f" }
 dependencies = [
     { name = "alembic" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "sqlalchemy" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "alembic", specifier = ">=1.14" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
-    { name = "pydantic", specifier = ">=2.13.4" },
-    { name = "python-dotenv", specifier = ">=1.0" },
-    { name = "sqlalchemy", specifier = ">=2.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "ruff", specifier = ">=0.7" },
-    { name = "sqlacodegen", specifier = ">=4.0.3" },
 ]
 
 [[package]]
