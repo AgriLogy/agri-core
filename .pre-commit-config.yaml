@@ -1,5 +1,6 @@
-# Install once: pre-commit install --install-hooks
-# (wires both the pre-commit and commit-msg stages)
+# Install once:
+#   pre-commit install --install-hooks          # pre-commit + commit-msg stages
+#   pre-commit install --hook-type pre-push      # the pre-push gate below
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.7.4
@@ -14,3 +15,26 @@ repos:
       - id: conventional-pre-commit
         stages: [commit-msg]
         args: [--strict]
+
+  # Pre-push gate — catch lint / test / release-config breakage locally
+  # before it reaches CI.
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check .
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+      - id: pytest
+        name: pytest
+        entry: uv run pytest -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+      - id: semantic-release-config
+        name: validate semantic-release config (no-op version --print)
+        entry: uvx --from python-semantic-release semantic-release -c pyproject.toml version --print
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
