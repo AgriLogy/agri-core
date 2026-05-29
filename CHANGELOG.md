@@ -1,6 +1,28 @@
 # CHANGELOG
 
 
+## v0.6.0 (2026-05-29)
+
+### Features
+
+- **agronomy**: Db-backed compute_et0_for_zone via AgriMainDBClient
+  ([`a61c383`](https://github.com/AgriLogy/agri-core/commit/a61c383ee00dac41988f9676c3353ace3cf57f4e))
+
+First fetch-and-compute handler: compute_et0_for_zone(session, zone_id) fetches the previous full
+  hour of weather averages for the zone and runs the pure compute_zone_et0 handler. The DB access
+  that used to live in the agri-api Django adapter now lives in agri-core.
+
+- AgriMainDBClient.average_value(session, model, zone_id, start, end): AVG(value) over [start, end)
+  for a zone; mirrors the Django _avg helper (NULL -> None on empty). Reusable by the remaining
+  handler lifts. - compute_et0_for_zone: floor end to the hour, average the 5 weather sensors, pull
+  zone.user lat/lon, delegate to compute_zone_et0. Returns None on unknown zone or missing slot
+  input. The pure DTO-in handler is untouched so the FAO-56 math stays DB-free and unit-testable. -
+  Tests run against in-memory SQLite (portable column types), exercising the real fetch+compute path
+  and average_value windowing -- no Postgres.
+
+Depends on agri-db's reverse-relationship fix (mappers must configure before any query).
+
+
 ## v0.5.0 (2026-05-29)
 
 ### Chores
