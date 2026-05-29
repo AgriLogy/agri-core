@@ -18,6 +18,6 @@ Design rules (see ``CLAUDE.md`` and the project memory entry
 """
 from __future__ import annotations
 
-__version__ = "0.4.0"
+from agri.core._version import __version__
 
 __all__ = ["__version__"]

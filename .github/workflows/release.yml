@@ -1,0 +1,45 @@
+name: release
+
+# Manual trigger or push to main. Reads conventional commits since the last
+# tag, computes the next version, rewrites src/agri/core/_version.py, updates
+# CHANGELOG.md, tags (bare {version}), and creates a GitHub Release. The
+# release commit carries "[skip ci]" so it does not re-trigger.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "stable (main) or rc (feat|fix|perf branch)"
+        type: choice
+        options: [stable, rc]
+        default: stable
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "MKS~ZAK"
+          git config user.email "60817481+mks-zakaria@users.noreply.github.com"
+
+      - name: Python Semantic Release
+        uses: python-semantic-release/python-semantic-release@v9.21.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prerelease: ${{ inputs.release_type == 'rc' }}
+        env:
+          GIT_COMMIT_AUTHOR: "MKS~ZAK <60817481+mks-zakaria@users.noreply.github.com>"
