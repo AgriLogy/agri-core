@@ -9,6 +9,14 @@ description = "Framework-agnostic business logic and HTTP endpoint handlers for 
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.10",
+    # The schema-of-record. Supplies the SQLAlchemy ORM models that
+    # agri.core.database queries. Resolved from the sibling checkout via
+    # [tool.uv.sources] below — no versioning/tags (solo dev). Mirrors the
+    # revly-core → data-model chain. psycopg arrives transitively through
+    # agri-db; sqlalchemy is also pinned explicitly since this package
+    # imports it directly.
+    "agri-db",
+    "sqlalchemy>=2.0",
 ]
 
 [dependency-groups]
@@ -16,6 +24,14 @@ dev = [
     "ruff>=0.7",
     "pytest>=8.3",
 ]
+
+# ---------------------------------------------------------------------------
+# Local path dependency (no versioning — see project memory
+# `agri-core-architecture`). The Docker build context in agri-api must span
+# the sibling repos so this path resolves at image-build time too.
+# ---------------------------------------------------------------------------
+[tool.uv.sources]
+agri-db = { path = "../agri-db", editable = true }
 
 # ---------------------------------------------------------------------------
 # Packaging — src/ layout. The package is the namespace pair `agri.core`,
@@ -49,7 +65,7 @@ select = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["agri.core"]
+known-first-party = ["agri.core", "agri.db"]
 
 # ---------------------------------------------------------------------------
 # Pytest

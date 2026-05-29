@@ -11,8 +11,10 @@ Design rules (see ``CLAUDE.md`` and the project memory entry
   3-line wrapper that unpacks the request and calls the handler.
 * Business logic (FAO-56 / Kc / irrigation), device adapters, and the
   alert evaluator live here too.
-* Repository/service abstractions are injected by the caller — no DB
-  access inside this package.
+* DB access lives in ``agri.core.database`` (Revly-style): handlers
+  fetch through ``AgriMainDBClient`` over the ORM models that the
+  sibling ``agri-db`` package owns. SQLAlchemy is allowed here;
+  Django/DRF still are not.
 """
 from __future__ import annotations
 
