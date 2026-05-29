@@ -28,7 +28,9 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
-          version: "0.5.7"
+          # Match the uv that wrote uv.lock (lock revision 3, dynamic-version
+          # root). uv 0.5.7 can't parse it ("missing field version").
+          version: "0.11.6"
           enable-cache: true
           cache-dependency-glob: uv.lock
 
