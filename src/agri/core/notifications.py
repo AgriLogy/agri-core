@@ -9,16 +9,22 @@ notification email body the Celery task sends. No Django imports; the
 adapter in agri-api packs ``user_name`` from the user's profile and
 calls :func:`compose_notification_email`.
 """
+
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from sqlalchemy.orm import Session
 
 
 def _fmt(value: Any, suffix: str = "", precision: int = 1) -> str:
     """Render numeric values; render '—' when missing."""
     if value is None:
         return "—"
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return f"{value:.{precision}f}{suffix}"
     return f"{value}{suffix}"
 
@@ -36,9 +42,7 @@ def compose_notification_email(
     zone_label = snapshot["zone_name"] or "votre zone"
 
     last_irrig_at = snapshot.get("last_irrigation_at")
-    last_irrig_str = (
-        last_irrig_at.strftime("%d/%m/%Y %H:%M") if last_irrig_at else "—"
-    )
+    last_irrig_str = last_irrig_at.strftime("%d/%m/%Y %H:%M") if last_irrig_at else "—"
     last_irrig_volume = (
         f"{snapshot['last_irrigation_l']:.0f} L"
         if snapshot.get("last_irrigation_l") is not None
@@ -78,4 +82,36 @@ Fenêtre d'irrigation suggérée : {snapshot["perfect_irrigation_window"]}
 """
 
 
-__all__ = ["compose_notification_email"]
+def compose_notification_for_user(
+    session: Session,
+    user_id: int,
+    *,
+    dr_today_mm: float | None = None,
+    precipitation_forecast_mm: float = 0.0,
+    now: datetime | None = None,
+) -> str | None:
+    """DB-backed: fetch the user + their field snapshot and render the email.
+
+    Combines :func:`agri.core.agronomy.field_snapshot_for_user` with
+    :func:`compose_notification_email`. Returns ``None`` when the user
+    doesn't exist. Mirrors the agri-api adapter (firstname → greeting).
+    """
+    from agri.core.agronomy import field_snapshot_for_user
+    from agri.core.database.client import AgriMainDBClient
+    from agri.db.users import CustomUserCustomuser
+
+    user = AgriMainDBClient.get(session, CustomUserCustomuser, user_id)
+    if user is None:
+        return None
+    snapshot = field_snapshot_for_user(
+        session,
+        user_id,
+        dr_today_mm=dr_today_mm,
+        precipitation_forecast_mm=precipitation_forecast_mm,
+        now=now,
+    )
+    user_name = user.firstname or user.username
+    return compose_notification_email(user_name, snapshot)
+
+
+__all__ = ["compose_notification_email", "compose_notification_for_user"]
