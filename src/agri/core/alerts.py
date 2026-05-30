@@ -19,11 +19,15 @@ Owns:
 The adapter in agri-api keeps the Django-coupled pieces (Django ORM
 queries, Celery dispatch, the model-string → class resolution).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 # ---------------------------------------------------------------------------
 # 1. Sensor-key registry
@@ -367,6 +371,132 @@ def suggested_alert_payload(
     }
 
 
+# ---------------------------------------------------------------------------
+# 6. DB-backed entry points (fetch + compute over agri.db)
+# ---------------------------------------------------------------------------
+
+
+def db_model_for(sensor_key: str) -> type:
+    """Resolve a ``sensor_key`` to its ``agri.db.analytics`` ORM model.
+
+    The registry stores the Django model *name* (e.g. ``TemperatureWeather``);
+    the matching agri.db class is ``Analytics`` + that name lowercased and
+    capitalised (``AnalyticsTemperatureweather``). Raises ``KeyError`` for an
+    unknown key. A test asserts every registry key resolves.
+    """
+    import agri.db.analytics as analytics
+
+    name = SENSOR_KEY_REGISTRY[sensor_key]["model"]
+    return getattr(analytics, "Analytics" + name.lower().capitalize())
+
+
+def _latest_reading_for(
+    session: Session, sensor_key: str, *, zone_id: int | None, user_id: int
+) -> LatestReading:
+    """Most recent reading for a sensor scoped to the zone (or the user when
+    the alert has no zone). ``LatestReading(None, None)`` when unavailable."""
+    from agri.core.database.client import AgriMainDBClient
+
+    if not sensor_key or sensor_key not in SENSOR_KEY_REGISTRY:
+        return LatestReading(None, None)
+    model = db_model_for(sensor_key)
+    criterion = model.zone_id == zone_id if zone_id else model.user_id == user_id
+    row = AgriMainDBClient.latest(session, model, criterion)
+    if row is None:
+        return LatestReading(None, None)
+    return LatestReading(value=row.value, timestamp=row.timestamp)
+
+
+def recent_triggers_for_user(
+    session: Session,
+    user_id: int,
+    *,
+    sensor_key: str | None = None,
+    zone_id: int | None = None,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Every active alert for ``user_id`` (optionally filtered to one
+    sensor/zone), annotated with its latest value, trigger state, and the
+    canonical threshold for chart overlays. Ports the agri-api fan-out — the
+    fetch now lives in core.
+
+    Side effect (parity with the legacy adapter): stamps ``last_triggered_at``
+    the first time an alert is found triggered. The caller owns the commit.
+    """
+    from sqlalchemy import select
+
+    from agri.db.analytics import AnalyticsAlert
+
+    now = now or datetime.now(UTC)
+    criteria = [AnalyticsAlert.user_id == user_id, AnalyticsAlert.is_active.is_(True)]
+    if sensor_key:
+        criteria.append(AnalyticsAlert.sensor_key == sensor_key)
+    if zone_id:
+        criteria.append(AnalyticsAlert.zone_id == zone_id)
+    rows = session.scalars(
+        select(AnalyticsAlert).where(*criteria).order_by(AnalyticsAlert.id)
+    ).all()
+
+    out: list[dict[str, Any]] = []
+    for alert in rows:
+        latest = _latest_reading_for(
+            session, alert.sensor_key, zone_id=alert.zone_id, user_id=alert.user_id
+        )
+        triggered = evaluate_alert(
+            AlertSpec(condition=alert.condition, threshold=float(alert.condition_nbr)),
+            latest.value,
+        )
+        if triggered and not alert.last_triggered_at:
+            alert.last_triggered_at = now
+        spec = SENSOR_KEY_REGISTRY.get(alert.sensor_key, {})
+        out.append(
+            {
+                "id": alert.id,
+                "name": alert.name,
+                "sensor_key": alert.sensor_key,
+                "zone_id": alert.zone_id,
+                "condition": alert.condition,
+                "threshold": float(alert.condition_nbr),
+                "unit": spec.get("unit"),
+                "label": spec.get("label"),
+                "is_active": alert.is_active,
+                "latest_value": latest.value,
+                "latest_timestamp": (latest.timestamp.isoformat() if latest.timestamp else None),
+                "is_triggered": triggered,
+                "last_triggered_at": (
+                    alert.last_triggered_at.isoformat() if alert.last_triggered_at else None
+                ),
+            }
+        )
+    return out
+
+
+def suggest_alert_for(
+    session: Session,
+    user_id: int,
+    sensor_key: str,
+    *,
+    zone_id: int | None = None,
+    limit: int = 20,
+) -> dict[str, Any] | None:
+    """Fetch the recent readings for ``sensor_key`` (scoped to the zone, or
+    the user) and build the create-alert prefill via
+    :func:`suggested_alert_payload`. ``None`` for an unknown ``sensor_key``."""
+    from sqlalchemy import select
+
+    if sensor_key not in SENSOR_KEY_REGISTRY:
+        return None
+    model = db_model_for(sensor_key)
+    criterion = model.zone_id == zone_id if zone_id else model.user_id == user_id
+    recent = session.scalars(
+        select(model.value)
+        .where(criterion, model.value.is_not(None))
+        .order_by(model.timestamp.desc())
+        .limit(limit)
+    ).all()
+    return suggested_alert_payload(sensor_key, [float(v) for v in recent])
+
+
 __all__ = [
     "SENSOR_KEY_REGISTRY",
     "GREATER_THAN",
@@ -378,4 +508,7 @@ __all__ = [
     "evaluate",
     "evaluate_alert",
     "suggested_alert_payload",
+    "db_model_for",
+    "recent_triggers_for_user",
+    "suggest_alert_for",
 ]
