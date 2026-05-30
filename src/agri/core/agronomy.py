@@ -894,6 +894,122 @@ def field_snapshot(inputs: FieldInputs) -> dict[str, Any]:
     }
 
 
+def _local_day_bounds(now: datetime) -> tuple[datetime, datetime]:
+    """Today's ``[00:00, 24:00)`` in ``DEPLOYMENT_LOCAL_TZ``, as UTC bounds."""
+    local_now = now.astimezone(DEPLOYMENT_LOCAL_TZ)
+    start_local = datetime(
+        local_now.year, local_now.month, local_now.day, tzinfo=DEPLOYMENT_LOCAL_TZ
+    )
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(UTC), end_local.astimezone(UTC)
+
+
+def field_snapshot_for_user(
+    session: Session,
+    user_id: int,
+    *,
+    dr_today_mm: float | None = None,
+    precipitation_forecast_mm: float = 0.0,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """DB-backed field snapshot: fetch the user's zone + recent sensor
+    aggregates and run the pure :func:`field_snapshot`.
+
+    Ports the agri-api Django adapter — the fetch now lives in core. The
+    caller passes an active SQLAlchemy ``Session``; ``now`` defaults to the
+    current UTC time. Picks the user's lowest-id zone (the dashboard
+    default) and returns the no-zone placeholder when the user has none.
+    """
+    from agri.core.database.client import AgriMainDBClient
+    from agri.db.analytics import (
+        AnalyticsEcsalinitysensor,
+        AnalyticsEt0calculated,
+        AnalyticsHumidityweather,
+        AnalyticsNpksensor,
+        AnalyticsPhsoil,
+        AnalyticsSoilmoisturemedium,
+        AnalyticsSoilsalinitysensor,
+        AnalyticsSoiltemperaturemedium,
+        AnalyticsTemperatureweather,
+        AnalyticsWaterflowsensor,
+        AnalyticsZone,
+    )
+
+    now = now or datetime.now(UTC)
+    today_start, today_end = _local_day_bounds(now)
+    yesterday_start = today_start - timedelta(days=1)
+
+    db = AgriMainDBClient
+    zone = db.first_by(session, AnalyticsZone, AnalyticsZone.id, AnalyticsZone.user_id == user_id)
+    if zone is None:
+        return field_snapshot(
+            FieldInputs(
+                date_today=now.date(),
+                zone=None,
+                sensors=None,
+                dr_today_mm=dr_today_mm,
+                precipitation_forecast_mm=precipitation_forecast_mm,
+            )
+        )
+
+    zid = zone.id
+
+    def latest_value(model: type) -> float | None:
+        row = db.latest(session, model, model.zone_id == zid)
+        return row.value if row is not None else None
+
+    def avg(model: type, start: datetime, end: datetime) -> float | None:
+        return db.average_value(session, model, zone_id=zid, start=start, end=end)
+
+    npk = db.latest(session, AnalyticsNpksensor, AnalyticsNpksensor.zone_id == zid)
+    last_flow = db.latest(
+        session,
+        AnalyticsWaterflowsensor,
+        AnalyticsWaterflowsensor.zone_id == zid,
+        AnalyticsWaterflowsensor.value > 0,
+    )
+
+    sensors = SensorAggregates(
+        yesterday_temp_c=avg(AnalyticsTemperatureweather, yesterday_start, today_start),
+        today_temp_c=avg(AnalyticsTemperatureweather, today_start, today_end),
+        yesterday_humidity_pct=avg(AnalyticsHumidityweather, yesterday_start, today_start),
+        today_humidity_pct=avg(AnalyticsHumidityweather, today_start, today_end),
+        et0_today_mm=db.sum_value(
+            session, AnalyticsEt0calculated, zone_id=zid, start=today_start, end=today_end
+        ),
+        soil_moisture_pct=latest_value(AnalyticsSoilmoisturemedium),
+        soil_temperature_c=latest_value(AnalyticsSoiltemperaturemedium),
+        soil_ph=latest_value(AnalyticsPhsoil),
+        soil_ec=latest_value(AnalyticsEcsalinitysensor),
+        soil_salinity=latest_value(AnalyticsSoilsalinitysensor),
+        npk_n=getattr(npk, "nitrogen_value", None),
+        npk_p=getattr(npk, "phosphorus_value", None),
+        npk_k=getattr(npk, "potassium_value", None),
+        last_irrigation_at=last_flow.timestamp if last_flow is not None else None,
+        last_irrigation_l=(float(last_flow.value) * 1000.0 if last_flow is not None else None),
+    )
+
+    zone_params = ZoneParams(
+        name=zone.name,
+        area_m2=zone.space,
+        raw_mm=getattr(zone, "soil_param_RAW", None),
+        taw_mm=getattr(zone, "soil_param_TAW", None),
+        pomp_flow_rate_l_per_s=getattr(zone, "pomp_flow_rate", None),
+        irrigation_water_quantity_l=getattr(zone, "irrigation_water_quantity", None),
+        critical_moisture_pct=getattr(zone, "critical_moisture_threshold", None),
+    )
+
+    return field_snapshot(
+        FieldInputs(
+            date_today=now.date(),
+            zone=zone_params,
+            sensors=sensors,
+            dr_today_mm=dr_today_mm,
+            precipitation_forecast_mm=precipitation_forecast_mm,
+        )
+    )
+
+
 __all__ = [
     # Doc § 3-4 constants
     "DEFAULT_KC",
@@ -942,9 +1058,11 @@ __all__ = [
     "Et0Inputs",
     "ZoneEt0",
     "compute_zone_et0",
+    "compute_et0_for_zone",
     # Field-snapshot handler
     "ZoneParams",
     "SensorAggregates",
     "FieldInputs",
     "field_snapshot",
+    "field_snapshot_for_user",
 ]

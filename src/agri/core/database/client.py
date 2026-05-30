@@ -83,3 +83,49 @@ class AgriMainDBClient:
                 model.timestamp < end,
             )
         )
+
+    @staticmethod
+    def sum_value(
+        session: Session,
+        model: type[ModelT],
+        *,
+        zone_id: int,
+        start: datetime,
+        end: datetime,
+    ) -> float | None:
+        """Sum of ``model.value`` over ``[start, end)`` for ``zone_id``.
+
+        ``None`` when no rows match (SQL ``SUM`` of an empty set).
+        """
+        return session.scalar(
+            select(func.sum(model.value)).where(
+                model.zone_id == zone_id,
+                model.timestamp >= start,
+                model.timestamp < end,
+            )
+        )
+
+    @staticmethod
+    def latest(
+        session: Session, model: type[ModelT], *criteria: ColumnElement[bool]
+    ) -> ModelT | None:
+        """Most recent row (by ``timestamp`` desc) matching ``criteria``, or ``None``.
+
+        Mirrors the Django ``_latest`` adapter helper.
+        """
+        return session.scalars(
+            select(model).where(*criteria).order_by(model.timestamp.desc()).limit(1)
+        ).first()
+
+    @staticmethod
+    def first_by(
+        session: Session,
+        model: type[ModelT],
+        order_col: ColumnElement,
+        *criteria: ColumnElement[bool],
+    ) -> ModelT | None:
+        """First row ordered by ``order_col`` (asc) matching ``criteria``, or ``None``.
+
+        Used e.g. to pick a user's lowest-id zone (the dashboard default).
+        """
+        return session.scalars(select(model).where(*criteria).order_by(order_col).limit(1)).first()
