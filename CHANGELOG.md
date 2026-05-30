@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.8.0 (2026-05-30)
+
+### Features
+
+- **alerts**: Db-backed recent_triggers_for_user + suggest_alert_for
+  ([#20](https://github.com/AgriLogy/agri-core/pull/20),
+  [`73efd5b`](https://github.com/AgriLogy/agri-core/commit/73efd5b3f70b5285b29836454fb95bdcce72c695))
+
+Closes #19
+
+
 ## v0.7.0 (2026-05-30)
 
 ### Features
