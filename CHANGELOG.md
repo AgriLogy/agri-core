@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.7.0 (2026-05-30)
+
+### Features
+
+- **agronomy**: Db-backed field_snapshot_for_user
+  ([#18](https://github.com/AgriLogy/agri-core/pull/18),
+  [`dcd04ce`](https://github.com/AgriLogy/agri-core/commit/dcd04ce3ce8cacf356414e6baddf6fd0106e68fa))
+
+Closes #17
+
+
 ## v0.6.1 (2026-05-29)
 
 ### Bug Fixes
