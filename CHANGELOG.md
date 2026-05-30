@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.9.0 (2026-05-30)
+
+### Features
+
+- **notifications**: Db-backed compose_notification_for_user
+  ([#22](https://github.com/AgriLogy/agri-core/pull/22),
+  [`c0374f1`](https://github.com/AgriLogy/agri-core/commit/c0374f11a99618725bb3a7f1deef479e99f39774))
+
+Closes #21
+
+
 ## v0.8.0 (2026-05-30)
 
 ### Features
