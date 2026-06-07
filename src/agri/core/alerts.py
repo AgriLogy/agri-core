@@ -252,6 +252,21 @@ SENSOR_KEY_REGISTRY: dict[str, dict[str, Any]] = {
         "label": "pH du sol",
         "type": "pH Level",
     },
+    # Device-health metrics — reported by LoRaWAN nodes (battery + RSSI) and,
+    # for signal, by Bivocom gateways too. Surfaced per-zone like any sensor,
+    # so the dashboard shows them only when a device actually reports them.
+    "battery": {
+        "model": "BatterySensor",
+        "unit": "V",
+        "label": "Batterie",
+        "type": "Battery",
+    },
+    "signal": {
+        "model": "SignalSensor",
+        "unit": "dBm",
+        "label": "Signal",
+        "type": "Signal",
+    },
 }
 
 
@@ -343,9 +358,15 @@ def suggested_alert_payload(
     spec = SENSOR_KEY_REGISTRY[sensor_key]
     mean = round(sum(recent_values) / len(recent_values), 2) if recent_values else None
 
-    # "Below mean" is the more useful default for soil moisture; everything
-    # else uses "above mean".
-    condition = LESS_THAN if sensor_key.startswith("soil_moisture") else GREATER_THAN
+    # "Below mean" is the more useful default for soil moisture and for the
+    # device-health metrics (low battery / weak signal are the failure modes);
+    # everything else uses "above mean".
+    _BELOW_MEAN_KEYS = {"battery", "signal"}
+    condition = (
+        LESS_THAN
+        if sensor_key.startswith("soil_moisture") or sensor_key in _BELOW_MEAN_KEYS
+        else GREATER_THAN
+    )
 
     threshold = mean if mean is not None else 0.0
     name = f"Alerte — {spec['label']}"
