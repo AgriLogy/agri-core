@@ -1,6 +1,22 @@
 # CHANGELOG
 
 
+## v0.10.0 (2026-06-07)
+
+### Features
+
+- **alerts**: Add battery + signal sensor keys
+  ([#24](https://github.com/AgriLogy/agri-core/pull/24),
+  [`5698b22`](https://github.com/AgriLogy/agri-core/commit/5698b22f4462dfb07be6abcd735a159428af51b1))
+
+Register two device-health metrics in SENSOR_KEY_REGISTRY: * battery — voltage (V), model
+  BatterySensor * signal — RSSI (dBm), model SignalSensor
+
+Both alert on LOW values (low battery / weak signal are the failure modes), like soil moisture.
+  Bumps the agri-db pin to 0.2.0, which adds the matching AnalyticsBatterysensor /
+  AnalyticsSignalsensor ORM models so db_model_for resolves the new keys.
+
+
 ## v0.9.0 (2026-05-30)
 
 ### Features
