@@ -14,8 +14,9 @@ models in ``agri.db``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -110,34 +111,39 @@ class AgriMainDBClient:
         session: Session,
         model: type[ModelT],
         *,
-        zone_id: int,
-        start: datetime,
-        end: datetime,
-    ) -> list[tuple[datetime, float | None]]:
-        """One averaged ``model.value`` per clock hour over ``[start, end)``.
+        user_id: int,
+        zone_id: int | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        value_columns: Sequence[str] = ("value",),
+    ) -> list[dict[str, Any]]:
+        """One row per clock hour for ``user_id``'s readings, averaging each
+        of ``value_columns`` within the hour.
 
         Buckets rows with ``date_trunc('hour', timestamp)`` (Postgres) and
-        averages ``value`` within each bucket — the SQL counterpart of the
-        django-ninja sensors router's hourly aggregation, so both surfaces
-        collapse high-cadence readings to one value per hour per captor.
+        returns dicts ``{"hour": datetime, "last_id": int, <col>: float | None,
+        ...}`` ordered by hour ascending — the canonical aggregation behind
+        the django-ninja sensors router's one-value-per-hour-per-captor
+        response. NPK passes its three ``*_value`` columns; every other
+        sensor takes the default ``("value",)``.
 
-        Returns ``(hour_start, avg_value)`` tuples ordered by hour ascending;
-        empty list when no rows match. ``model`` must expose ``value`` /
-        ``zone_id`` / ``timestamp`` (every sensor-reading model in
-        ``agri.db`` does).
+        ``zone_id`` / ``start`` / ``end`` are optional filters (``end`` is
+        exclusive). ``last_id`` is the max row id in the bucket, so the API
+        layer keeps a unique, patchable id per aggregated row. Empty list
+        when no rows match.
         """
         bucket = func.date_trunc("hour", model.timestamp).label("hour")
-        rows = session.execute(
-            select(bucket, func.avg(model.value))
-            .where(
-                model.zone_id == zone_id,
-                model.timestamp >= start,
-                model.timestamp < end,
-            )
-            .group_by(bucket)
-            .order_by(bucket)
-        ).all()
-        return [(row[0], row[1]) for row in rows]
+        selected = [bucket, func.max(model.id).label("last_id")]
+        selected += [func.avg(getattr(model, c)).label(c) for c in value_columns]
+        stmt = select(*selected).where(model.user_id == user_id)
+        if zone_id is not None:
+            stmt = stmt.where(model.zone_id == zone_id)
+        if start is not None:
+            stmt = stmt.where(model.timestamp >= start)
+        if end is not None:
+            stmt = stmt.where(model.timestamp < end)
+        stmt = stmt.group_by(bucket).order_by(bucket)
+        return [dict(row._mapping) for row in session.execute(stmt)]
 
     @staticmethod
     def latest(
