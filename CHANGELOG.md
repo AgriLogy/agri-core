@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.12.0 (2026-06-09)
+
+### Features
+
+- **database**: Generalize hourly_averages for the sensors endpoint
+  ([#28](https://github.com/AgriLogy/agri-core/pull/28),
+  [`641704f`](https://github.com/AgriLogy/agri-core/commit/641704f0d28896dbdeaba3e98cdeff01dadcfd87))
+
+Closes #27
+
+
 ## v0.11.0 (2026-06-09)
 
 ### Features
