@@ -106,6 +106,40 @@ class AgriMainDBClient:
         )
 
     @staticmethod
+    def hourly_averages(
+        session: Session,
+        model: type[ModelT],
+        *,
+        zone_id: int,
+        start: datetime,
+        end: datetime,
+    ) -> list[tuple[datetime, float | None]]:
+        """One averaged ``model.value`` per clock hour over ``[start, end)``.
+
+        Buckets rows with ``date_trunc('hour', timestamp)`` (Postgres) and
+        averages ``value`` within each bucket — the SQL counterpart of the
+        django-ninja sensors router's hourly aggregation, so both surfaces
+        collapse high-cadence readings to one value per hour per captor.
+
+        Returns ``(hour_start, avg_value)`` tuples ordered by hour ascending;
+        empty list when no rows match. ``model`` must expose ``value`` /
+        ``zone_id`` / ``timestamp`` (every sensor-reading model in
+        ``agri.db`` does).
+        """
+        bucket = func.date_trunc("hour", model.timestamp).label("hour")
+        rows = session.execute(
+            select(bucket, func.avg(model.value))
+            .where(
+                model.zone_id == zone_id,
+                model.timestamp >= start,
+                model.timestamp < end,
+            )
+            .group_by(bucket)
+            .order_by(bucket)
+        ).all()
+        return [(row[0], row[1]) for row in rows]
+
+    @staticmethod
     def latest(
         session: Session, model: type[ModelT], *criteria: ColumnElement[bool]
     ) -> ModelT | None:
