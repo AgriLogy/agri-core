@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.11.0 (2026-06-09)
+
+### Features
+
+- **database**: Add hourly_averages to AgriMainDBClient
+  ([#26](https://github.com/AgriLogy/agri-core/pull/26),
+  [`4510246`](https://github.com/AgriLogy/agri-core/commit/4510246dfe181c9bae292bb7e11a0912d631b201))
+
+Closes #25
+
+
 ## v0.10.0 (2026-06-07)
 
 ### Features
