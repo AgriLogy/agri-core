@@ -76,6 +76,13 @@ SENSOR_KEY_REGISTRY: dict[str, dict[str, Any]] = {
         "label": "ET₀",
         "type": "Weather Temperature",
     },
+    "vpd": {
+        # VPDWeather rows are written by the ET₀ calc task (agri-api tasks.py).
+        "model": "VPDWeather",
+        "unit": "kPa",
+        "label": "Déficit de pression de vapeur (DPV)",
+        "type": "Weather Temperature",
+    },
     "soil_moisture_medium": {
         "model": "SoilMoistureMedium",
         "unit": "%",
