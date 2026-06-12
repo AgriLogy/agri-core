@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.13.0 (2026-06-12)
+
+### Features
+
+- **alerts**: Register vpd sensor key (VPDWeather)
+  ([#30](https://github.com/AgriLogy/agri-core/pull/30),
+  [`3cdc65a`](https://github.com/AgriLogy/agri-core/commit/3cdc65a488100297a4187899784fa71a10044c21))
+
+Lets the frontend DPV card create/suggest alerts; VPDWeather rows are written by the ET0 calc task.
+
+
 ## v0.12.0 (2026-06-09)
 
 ### Features
