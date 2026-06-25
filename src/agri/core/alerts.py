@@ -22,6 +22,8 @@ queries, Celery dispatch, the model-string → class resolution).
 
 from __future__ import annotations
 
+import math
+import statistics
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -346,21 +348,72 @@ class LatestReading:
 # ---------------------------------------------------------------------------
 
 
+# Threshold-suggestion strategies for ``suggested_alert_payload``. ``mean`` is
+# the historical default (back-compatible). ``percentile`` / ``sd`` are
+# direction-aware: for a GREATER_THAN alert they bias the threshold *up* (a high
+# percentile / mean+kσ) so only genuinely-high readings fire; for LESS_THAN they
+# bias it *down*.
+SUGGEST_STRATEGIES = ("mean", "percentile", "sd")
+_PERCENTILE_HIGH = 90.0
+_PERCENTILE_LOW = 10.0
+_SD_K = 2.0
+
+
+def _percentile(values: list[float], pct: float) -> float:
+    """Linear-interpolation percentile (``pct`` in [0, 100]) over ``values``.
+
+    Pure + deterministic; ``numpy``-free. Assumes ``values`` is non-empty.
+    """
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = (len(ordered) - 1) * (pct / 100.0)
+    lo = math.floor(rank)
+    hi = math.ceil(rank)
+    if lo == hi:
+        return ordered[int(rank)]
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (rank - lo)
+
+
+def _suggest_threshold(values: list[float], condition: str, strategy: str) -> float:
+    """Compute the suggested threshold from ``values`` for the given direction
+    (``condition``) and ``strategy``. Assumes ``values`` is non-empty."""
+    mean = sum(values) / len(values)
+    if strategy == "mean":
+        return round(mean, 2)
+    if strategy == "percentile":
+        pct = _PERCENTILE_HIGH if condition == GREATER_THAN else _PERCENTILE_LOW
+        return round(_percentile(values, pct), 2)
+    # strategy == "sd": mean ± kσ (population stdev so a single sample → σ=0).
+    sd = statistics.pstdev(values)
+    biased = mean + _SD_K * sd if condition == GREATER_THAN else mean - _SD_K * sd
+    return round(biased, 2)
+
+
 def suggested_alert_payload(
     sensor_key: str,
     recent_values: list[float],
+    *,
+    strategy: str = "mean",
 ) -> dict[str, Any] | None:
     """Build the create-alert prefill payload from a list of recent readings.
 
     The adapter is responsible for fetching the recent values (most-recent
     first, ``None`` entries already filtered out); the assembly logic —
-    label / unit / condition / threshold-from-mean / description — lives
-    here so the FastAPI rewrite can call it unchanged.
+    label / unit / condition / threshold / description — lives here so the
+    FastAPI rewrite can call it unchanged.
+
+    ``strategy`` controls how the threshold is derived from ``recent_values``
+    (one of :data:`SUGGEST_STRATEGIES`): ``mean`` (default, back-compatible),
+    ``percentile`` (direction-aware p90/p10), or ``sd`` (mean ± 2σ,
+    direction-aware). Raises ``ValueError`` for an unknown strategy.
 
     Returns ``None`` for unknown ``sensor_key``.
     """
     if sensor_key not in SENSOR_KEY_REGISTRY:
         return None
+    if strategy not in SUGGEST_STRATEGIES:
+        raise ValueError(f"Unknown strategy {strategy!r}; expected one of {SUGGEST_STRATEGIES}.")
 
     spec = SENSOR_KEY_REGISTRY[sensor_key]
     mean = round(sum(recent_values) / len(recent_values), 2) if recent_values else None
@@ -375,14 +428,26 @@ def suggested_alert_payload(
         else GREATER_THAN
     )
 
-    threshold = mean if mean is not None else 0.0
+    threshold = _suggest_threshold(recent_values, condition, strategy) if recent_values else 0.0
     name = f"Alerte — {spec['label']}"
-    description = (
-        f"Seuil prérempli depuis la moyenne des {len(recent_values)} dernières "
-        f"lectures ({mean} {spec['unit']})."
-        if recent_values
-        else "Aucune lecture récente — ajustez le seuil manuellement."
-    )
+    if not recent_values:
+        description = "Aucune lecture récente — ajustez le seuil manuellement."
+    elif strategy == "mean":
+        description = (
+            f"Seuil prérempli depuis la moyenne des {len(recent_values)} dernières "
+            f"lectures ({threshold} {spec['unit']})."
+        )
+    elif strategy == "percentile":
+        pct = int(_PERCENTILE_HIGH if condition == GREATER_THAN else _PERCENTILE_LOW)
+        description = (
+            f"Seuil prérempli depuis le {pct}e centile des {len(recent_values)} "
+            f"dernières lectures ({threshold} {spec['unit']})."
+        )
+    else:  # sd
+        description = (
+            f"Seuil prérempli depuis moyenne ± {int(_SD_K)} écarts-types des "
+            f"{len(recent_values)} dernières lectures ({threshold} {spec['unit']})."
+        )
 
     return {
         "sensor_key": sensor_key,
@@ -394,6 +459,7 @@ def suggested_alert_payload(
         "condition": condition,
         "condition_nbr": threshold,
         "mean": mean,
+        "strategy": strategy,
         "sample_size": len(recent_values),
         "is_active": True,
     }
@@ -539,10 +605,12 @@ def suggest_alert_for(
     *,
     zone_id: int | None = None,
     limit: int = 20,
+    strategy: str = "mean",
 ) -> dict[str, Any] | None:
     """Fetch the recent readings for ``sensor_key`` (scoped to the zone, or
     the user) and build the create-alert prefill via
-    :func:`suggested_alert_payload`. ``None`` for an unknown ``sensor_key``."""
+    :func:`suggested_alert_payload` (using ``strategy`` for the threshold).
+    ``None`` for an unknown ``sensor_key``."""
     from sqlalchemy import select
 
     if sensor_key not in SENSOR_KEY_REGISTRY:
@@ -555,7 +623,7 @@ def suggest_alert_for(
         .order_by(model.timestamp.desc())
         .limit(limit)
     ).all()
-    return suggested_alert_payload(sensor_key, [float(v) for v in recent])
+    return suggested_alert_payload(sensor_key, [float(v) for v in recent], strategy=strategy)
 
 
 __all__ = [
@@ -569,6 +637,7 @@ __all__ = [
     "evaluate",
     "evaluate_alert",
     "suggested_alert_payload",
+    "SUGGEST_STRATEGIES",
     "db_model_for",
     "effective_zone_id_for_alert",
     "recent_triggers_for_user",
