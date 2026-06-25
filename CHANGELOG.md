@@ -1,6 +1,20 @@
 # CHANGELOG
 
 
+## v0.17.0 (2026-06-25)
+
+### Features
+
+- **alerts**: Percentile + sd strategies for suggested_alert_payload
+  ([#42](https://github.com/AgriLogy/agri-core/pull/42),
+  [`d07577c`](https://github.com/AgriLogy/agri-core/commit/d07577cb5d245f18b962bb1e1b28224c070dbd72))
+
+AlertSuggest could only prefill the threshold from the mean of recent readings. Add a strategy arg
+  (default 'mean', back-compatible) with direction-aware 'percentile' (p90 for GREATER_THAN / p10
+  for LESS_THAN) and 'sd' (mean ± 2σ) options, threaded through suggest_alert_for. Pure +
+  deterministic (stdlib statistics/math). 11 new unit tests.
+
+
 ## v0.16.0 (2026-06-25)
 
 ### Features
