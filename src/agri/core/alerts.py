@@ -435,6 +435,36 @@ def _latest_reading_for(
     return LatestReading(value=row.value, timestamp=row.timestamp)
 
 
+def effective_zone_id_for_alert(session: Session, alert) -> int | None:
+    """Resolve the farm ``zone_id`` whose reading stream feeds ``alert``.
+
+    Three cases (agrilogy-front #57 custom notification zones):
+    * Alert bound to a farm zone → that ``zone_id`` (unchanged behaviour).
+    * Alert bound to a notification zone → the ``source_zone_id`` of the
+      matching ``AnalyticsNotificationzonesensor`` (the assignment for the
+      alert's ``sensor_key``); ``None`` when that assignment is user-wide.
+    * Neither → ``None`` (user-wide latest reading).
+    """
+    if getattr(alert, "zone_id", None):
+        return alert.zone_id
+    nz_id = getattr(alert, "notification_zone_id", None)
+    if not nz_id:
+        return None
+    from sqlalchemy import select
+
+    from agri.db.analytics import AnalyticsNotificationzonesensor
+
+    return session.scalars(
+        select(AnalyticsNotificationzonesensor.source_zone_id)
+        .where(
+            AnalyticsNotificationzonesensor.notification_zone_id == nz_id,
+            AnalyticsNotificationzonesensor.sensor_key == alert.sensor_key,
+        )
+        .order_by(AnalyticsNotificationzonesensor.id)
+        .limit(1)
+    ).first()
+
+
 def recent_triggers_for_user(
     session: Session,
     user_id: int,
@@ -468,7 +498,10 @@ def recent_triggers_for_user(
     out: list[dict[str, Any]] = []
     for alert in rows:
         latest = _latest_reading_for(
-            session, alert.sensor_key, zone_id=alert.zone_id, user_id=alert.user_id
+            session,
+            alert.sensor_key,
+            zone_id=effective_zone_id_for_alert(session, alert),
+            user_id=alert.user_id,
         )
         triggered = evaluate_alert(
             AlertSpec(condition=alert.condition, threshold=float(alert.condition_nbr)),
@@ -537,6 +570,7 @@ __all__ = [
     "evaluate_alert",
     "suggested_alert_payload",
     "db_model_for",
+    "effective_zone_id_for_alert",
     "recent_triggers_for_user",
     "suggest_alert_for",
 ]

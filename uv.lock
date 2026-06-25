@@ -19,7 +19,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agri-db", git = "https://github.com/AgriLogy/agri-db.git?rev=0.6.0" },
+    { name = "agri-db", git = "https://github.com/AgriLogy/agri-db.git?rev=0.7.0" },
     { name = "pydantic", specifier = ">=2.10" },
     { name = "sqlalchemy", specifier = ">=2.0" },
 ]
@@ -32,8 +32,8 @@ dev = [
 
 [[package]]
 name = "agri-db"
-version = "0.6.0"
-source = { git = "https://github.com/AgriLogy/agri-db.git?rev=0.6.0#df12c5a2b2c523e9a5edb26e829b21844abccc10" }
+version = "0.7.0"
+source = { git = "https://github.com/AgriLogy/agri-db.git?rev=0.7.0#7d251aa2a39c5b656fcc7ea02cb372b8e9ebc22f" }
 dependencies = [
     { name = "alembic" },
     { name = "psycopg", extra = ["binary"] },
