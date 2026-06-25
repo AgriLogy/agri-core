@@ -85,3 +85,27 @@ class TestComposeNotificationEmail:
         snap["zone_name"] = None
         body = compose_notification_email("Alice", snap)
         assert "votre zone" in body
+
+    def test_french_is_the_default_language(self):
+        # Explicit "fr" and the default both render the French template.
+        assert compose_notification_email(
+            "Alice", _snapshot_with_zone(), "fr"
+        ) == compose_notification_email("Alice", _snapshot_with_zone())
+
+    def test_arabic_language_renders_arabic_template(self):
+        body = compose_notification_email("Alice", _snapshot_with_zone(), "ar")
+        # Arabic greeting + section headers, no French chrome
+        assert body.startswith("مرحباً Alice،")
+        assert "التوقعات / الطقس" in body
+        assert "الحالة الحالية للتربة" in body
+        assert "التوصية لهذا اليوم" in body
+        assert "Bonjour" not in body
+        assert "Prévisions" not in body
+        # Numeric values + NPK still rendered the same way
+        assert "120/40/180 mg/kg" in body
+
+    def test_arabic_zone_label_falls_back_when_name_is_none(self):
+        snap = _snapshot_with_zone()
+        snap["zone_name"] = None
+        body = compose_notification_email("Alice", snap, "ar")
+        assert "منطقتك" in body
