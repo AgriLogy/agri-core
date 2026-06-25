@@ -4,6 +4,7 @@ DB-integration tests (`latest_value_for`, `recent_triggers_for_user`,
 `dispatch_alerts_for_reading`, the `suggest_alert` adapter that hits the
 ORM) stay in agri-api/back/analytics/tests/test_alerts.py.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -136,3 +137,64 @@ class TestSuggestedAlertPayload:
         assert payload is not None
         assert payload["label"] == spec["label"]
         assert payload["unit"] == spec["unit"]
+
+    def test_default_strategy_is_mean(self):
+        payload = suggested_alert_payload("temperature_weather", [20.0, 22.0, 24.0])
+        assert payload is not None
+        assert payload["strategy"] == "mean"
+
+    def test_unknown_strategy_raises(self):
+        with pytest.raises(ValueError):
+            suggested_alert_payload("temperature_weather", [1.0, 2.0], strategy="nope")
+
+    def test_percentile_strategy_above_for_greater_than(self):
+        # p90 of [10,20,30,40,50] (linear interp) = 46.0; biased above the mean (30).
+        payload = suggested_alert_payload(
+            "temperature_weather", [10.0, 20.0, 30.0, 40.0, 50.0], strategy="percentile"
+        )
+        assert payload is not None
+        assert payload["condition"] == GREATER_THAN
+        assert payload["strategy"] == "percentile"
+        assert payload["condition_nbr"] == pytest.approx(46.0)
+        assert payload["mean"] == pytest.approx(30.0)
+        assert "centile" in payload["description"]
+
+    def test_percentile_strategy_below_for_less_than(self):
+        # soil_moisture → LESS_THAN → p10 of [10,20,30,40,50] = 14.0 (below mean).
+        payload = suggested_alert_payload(
+            "soil_moisture_medium", [10.0, 20.0, 30.0, 40.0, 50.0], strategy="percentile"
+        )
+        assert payload is not None
+        assert payload["condition"] == LESS_THAN
+        assert payload["condition_nbr"] == pytest.approx(14.0)
+
+    def test_sd_strategy_above_for_greater_than(self):
+        # mean 30 + 2·pstdev(√200≈14.142) ≈ 58.28
+        payload = suggested_alert_payload(
+            "temperature_weather", [10.0, 20.0, 30.0, 40.0, 50.0], strategy="sd"
+        )
+        assert payload is not None
+        assert payload["condition"] == GREATER_THAN
+        assert payload["condition_nbr"] == pytest.approx(58.28, abs=0.01)
+        assert "écarts-types" in payload["description"]
+
+    def test_sd_strategy_below_for_less_than(self):
+        # soil_moisture → LESS_THAN → mean 30 − 2σ ≈ 1.72
+        payload = suggested_alert_payload(
+            "soil_moisture_medium", [10.0, 20.0, 30.0, 40.0, 50.0], strategy="sd"
+        )
+        assert payload is not None
+        assert payload["condition"] == LESS_THAN
+        assert payload["condition_nbr"] == pytest.approx(1.72, abs=0.01)
+
+    def test_single_sample_edge_cases(self):
+        # One reading: percentile and sd both collapse to that value.
+        for strat in ("percentile", "sd"):
+            payload = suggested_alert_payload("temperature_weather", [42.0], strategy=strat)
+            assert payload is not None
+            assert payload["condition_nbr"] == pytest.approx(42.0)
+
+    def test_empty_values_zero_threshold_regardless_of_strategy(self):
+        payload = suggested_alert_payload("temperature_weather", [], strategy="percentile")
+        assert payload is not None
+        assert payload["condition_nbr"] == 0.0
