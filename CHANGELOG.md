@@ -1,6 +1,21 @@
 # CHANGELOG
 
 
+## v0.15.0 (2026-06-25)
+
+### Features
+
+- **alerts**: Resolve notification-zone alert streams via sensor assignment
+  ([#38](https://github.com/AgriLogy/agri-core/pull/38),
+  [`7aec53b`](https://github.com/AgriLogy/agri-core/commit/7aec53b019e22dc1f6a237db70f31698f028a126))
+
+For agrilogy-front #57 custom notification zones. Add effective_zone_id_for_alert(): a farm-zone
+  alert keeps its zone_id; a notification-zone alert resolves its reading stream through the
+  matching AnalyticsNotificationzonesensor (sensor_key -> source_zone_id); neither = user-wide.
+  recent_triggers_for_user now scopes the latest reading by the effective zone. Bumps agri-db pin
+  0.6.0->0.7.0 (notification-zone schema).
+
+
 ## v0.14.0 (2026-06-25)
 
 ### Chores
