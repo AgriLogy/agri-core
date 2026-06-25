@@ -1,6 +1,38 @@
 # CHANGELOG
 
 
+## v0.14.0 (2026-06-25)
+
+### Chores
+
+- **ci**: Auto-assign new issues and PRs to mks-zakaria
+  ([#32](https://github.com/AgriLogy/agri-core/pull/32),
+  [`db211e8`](https://github.com/AgriLogy/agri-core/commit/db211e875a49ac018292e398883ec066b748115e))
+
+### Continuous Integration
+
+- Fix Auto Assign workflow failing on pull_request events
+  ([#34](https://github.com/AgriLogy/agri-core/pull/34),
+  [`1af5a99`](https://github.com/AgriLogy/agri-core/commit/1af5a99cedeca5a73bcc763308a9a1df6bc2cca9))
+
+Replace pozil/auto-assign-issue@v1 (which errors with "Couldn't find issue info in current context"
+  on pull_request, and warns on the invalid numOfAssignee input) with a single gh-api call to the
+  issues/assignees endpoint, which assigns both issues and PRs since a PR shares its repo's
+  issue-number space.
+
+### Features
+
+- **agronomy**: Use zone.elevation_m in compute_et0_for_zone
+  ([#36](https://github.com/AgriLogy/agri-core/pull/36),
+  [`2d683e1`](https://github.com/AgriLogy/agri-core/commit/2d683e1594cdd1f4f8791fc9fd11ad5a248d95c1))
+
+Pass elevation_m=zone.elevation_m into Et0Inputs so the clear-sky radiation Rso = (0.75 +
+  2e-5*elevation_m)*Ra is correct away from sea level instead of assuming 0 m. Requires the
+  elevation_m column added in agri-db 0.6.0; pin bumped 0.2.0 -> 0.6.0.
+
+Supports agri-api #15.
+
+
 ## v0.13.0 (2026-06-12)
 
 ### Features
