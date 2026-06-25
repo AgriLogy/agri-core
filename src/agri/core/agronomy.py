@@ -720,6 +720,7 @@ def compute_et0_for_zone(
             pressure_hpa=avg(AnalyticsPressureweather),
             latitude=user.latitude if user is not None else None,
             longitude=user.longitude if user is not None else None,
+            elevation_m=zone.elevation_m or 0.0,
         )
     )
 
