@@ -1,6 +1,22 @@
 # CHANGELOG
 
 
+## v0.16.0 (2026-06-25)
+
+### Features
+
+- **notifications**: Render the daily email in the user's language (fr/ar)
+  ([#40](https://github.com/AgriLogy/agri-core/pull/40),
+  [`d59f5f4`](https://github.com/AgriLogy/agri-core/commit/d59f5f48523dbbd3efe529da2653f17b3b605f04))
+
+compose_notification_email gains a language arg (default 'fr'); adds an Arabic template mirroring
+  the French one (same placeholders/values). compose_notification_for_user reads
+  user.preferred_language (agri-db 0.8.0) and passes it through. Bumps agri-db pin 0.7.0->0.8.0. 4
+  new tests.
+
+Arabic copy needs native-speaker review.
+
+
 ## v0.15.0 (2026-06-25)
 
 ### Features
