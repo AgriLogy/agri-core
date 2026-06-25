@@ -17,6 +17,8 @@ from agri.core.alerts import (
 )
 from agri.db.analytics import (
     AnalyticsAlert,
+    AnalyticsNotificationzone,
+    AnalyticsNotificationzonesensor,
     AnalyticsTemperatureweather,
     AnalyticsZone,
 )
@@ -29,6 +31,8 @@ _TABLES = [
     AnalyticsZone,
     AnalyticsAlert,
     AnalyticsTemperatureweather,
+    AnalyticsNotificationzone,
+    AnalyticsNotificationzonesensor,
 ]
 _ids = itertools.count(1)
 
@@ -115,3 +119,63 @@ def test_suggest_alert_for_uses_recent_mean(session: Session) -> None:
 
 def test_suggest_alert_for_unknown_key_is_none(session: Session) -> None:
     assert suggest_alert_for(session, 1, "not_a_key") is None
+
+
+def test_notification_zone_alert_reads_from_assigned_source_zone(
+    session: Session,
+) -> None:
+    """An alert bound to a custom notification zone resolves its reading stream
+    through the zone's sensor assignment (sensor_key + source_zone_id), NOT the
+    user-wide latest (agrilogy-front #57)."""
+    uid = 1
+    nz = AnalyticsNotificationzone(
+        id=next(_ids), name="Pump Area", description="", is_active=True, user_id=uid
+    )
+    session.add(nz)
+    session.flush()
+    session.add(
+        AnalyticsNotificationzonesensor(
+            id=next(_ids),
+            sensor_key="temperature_weather",
+            notification_zone_id=nz.id,
+            source_zone_id=20,
+        )
+    )
+    alert = AnalyticsAlert(
+        id=next(_ids),
+        name="Pump heat",
+        type="Weather Temperature",
+        description="",
+        condition=">",
+        condition_nbr=30.0,
+        is_active=True,
+        sensor_key="temperature_weather",
+        user_id=uid,
+        notification_zone_id=nz.id,
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    session.add(alert)
+    # Reading in the ASSIGNED source zone (20) — below; and a NEWER reading in a
+    # different zone (30) — above. Correct resolution must pick zone 20's value.
+    session.add(
+        AnalyticsTemperatureweather(
+            id=next(_ids), zone_id=20, user_id=uid, timestamp=NOW, value=25.0
+        )
+    )
+    session.add(
+        AnalyticsTemperatureweather(
+            id=next(_ids),
+            zone_id=30,
+            user_id=uid,
+            timestamp=NOW + dt.timedelta(minutes=5),
+            value=99.0,
+        )
+    )
+    session.flush()
+
+    rows = recent_triggers_for_user(session, uid, now=NOW)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["latest_value"] == pytest.approx(25.0)  # zone 20, not the newer 99
+    assert r["is_triggered"] is False  # 25 < 30
