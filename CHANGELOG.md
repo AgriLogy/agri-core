@@ -1,6 +1,20 @@
 # CHANGELOG
 
 
+## v0.18.0 (2026-06-26)
+
+### Features
+
+- **agronomy**: Multi-day ET0 forecast compute
+  ([#44](https://github.com/AgriLogy/agri-core/pull/44),
+  [`cce97b1`](https://github.com/AgriLogy/agri-core/commit/cce97b13d7823084adf0c981e42fe7b3daecea37))
+
+Pure, deterministic 7-day reference-ET0 forecast: maps N days of daily weather aggregates to one ET0
+  (mm/day) per day by summing the existing FAO-56 hourly Penman-Monteith handler over a synthesised
+  diurnal day. No I/O / no data source here — the weather provider lives in the agri-api adapter
+  (mock-first). For agrilogy-front #18.
+
+
 ## v0.17.0 (2026-06-25)
 
 ### Features
