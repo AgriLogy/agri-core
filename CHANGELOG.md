@@ -1,6 +1,31 @@
 # CHANGELOG
 
 
+## v0.18.1 (2026-06-28)
+
+### Bug Fixes
+
+- **deps**: Release the agri-db 0.11.1 pin (#45)
+  ([#47](https://github.com/AgriLogy/agri-core/pull/47),
+  [`5fc59f0`](https://github.com/AgriLogy/agri-core/commit/5fc59f0f84159c23fec9a5c432e95c5a328e2827))
+
+The pin bump merged as chore(deps) so semantic-release cut no version, leaving the 0.11.1 bump
+  unreleased and unavailable to downstream agri-api. This patch-typed commit cuts the release; also
+  documents the >= live-schema-head floor on the pin.
+
+### Chores
+
+- **deps**: Bump agri-db pin 0.8.0 -> 0.11.1 (#45)
+  ([#46](https://github.com/AgriLogy/agri-core/pull/46),
+  [`808bba6`](https://github.com/AgriLogy/agri-core/commit/808bba6a7ffd71b89f88f9f6c40a1ca4798ff814))
+
+Three minor versions behind the live schema. Bump so downstream agri-api can apply the current
+  migration chain and run on the current schema. agri-core test suite green (125 passed) against
+  0.11.1.
+
+Closes #45.
+
+
 ## v0.18.0 (2026-06-26)
 
 ### Features
