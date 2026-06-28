@@ -1,6 +1,20 @@
 # CHANGELOG
 
 
+## v0.18.2 (2026-06-28)
+
+### Bug Fixes
+
+- **deps**: Bump agri-db pin 0.11.1 -> 0.12.0 (analytics_devicesensor) (#48)
+  ([#49](https://github.com/AgriLogy/agri-core/pull/49),
+  [`d6fb112`](https://github.com/AgriLogy/agri-core/commit/d6fb1128da3821cd8de87c63f1010cfb8b2aff93))
+
+Pulls agri-db 0.12.0 so downstream agri-api bundles the analytics_devicesensor migration for the
+  admin device->sensor mapping feature. fix-typed so semantic-release cuts the version. Tests green.
+
+Closes #48.
+
+
 ## v0.18.1 (2026-06-28)
 
 ### Bug Fixes
