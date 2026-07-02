@@ -1,0 +1,26 @@
+name: CI
+
+# Thin caller into the org-shared CI definition. Lint = uv sync + ruff
+# check/format-check; test = pytest. Both need AGRI_DB_RO_TOKEN because
+# agri-core depends on the PRIVATE agri-db via a tagged git URL.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    uses: AgriLogy/shared-workflows/.github/workflows/python-lint.yml@v1
+    secrets: inherit
+
+  test:
+    needs: lint
+    uses: AgriLogy/shared-workflows/.github/workflows/python-test.yml@v1
+    with:
+      needs_agri_db_token: true
+      pytest_args: "-v"
+    secrets: inherit

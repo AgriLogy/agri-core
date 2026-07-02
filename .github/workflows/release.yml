@@ -1,9 +1,11 @@
 name: release
 
-# Manual trigger or push to main. Reads conventional commits since the last
-# tag, computes the next version, rewrites src/agri/core/_version.py, updates
-# CHANGELOG.md, tags (bare {version}), and creates a GitHub Release. The
-# release commit carries "[skip ci]" so it does not re-trigger.
+# Manual trigger or push to main. Thin caller into the org-shared
+# python-semantic-release workflow: reads conventional commits since the
+# last tag, computes the next version, rewrites src/agri/core/_version.py,
+# updates CHANGELOG.md, tags (bare {version}), and creates a GitHub
+# Release. The release commit carries "[skip ci]" so it does not
+# re-trigger; the guard and concurrency group stay caller-side.
 on:
   push:
     branches: [main]
@@ -24,22 +26,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure git identity
-        run: |
-          git config user.name "MKS~ZAK"
-          git config user.email "60817481+mks-zakaria@users.noreply.github.com"
-
-      - name: Python Semantic Release
-        uses: python-semantic-release/python-semantic-release@v9.21.0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          prerelease: ${{ inputs.release_type == 'rc' }}
-        env:
-          GIT_COMMIT_AUTHOR: "MKS~ZAK <60817481+mks-zakaria@users.noreply.github.com>"
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    uses: AgriLogy/shared-workflows/.github/workflows/release.yml@v1
+    with:
+      prerelease: ${{ inputs.release_type == 'rc' }}
