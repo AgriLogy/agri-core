@@ -16,6 +16,7 @@ Design rules (see ``CLAUDE.md`` and the project memory entry
   sibling ``agri-db`` package owns. SQLAlchemy is allowed here;
   Django/DRF still are not.
 """
+
 from __future__ import annotations
 
 from agri.core._version import __version__
