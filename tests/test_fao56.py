@@ -4,6 +4,7 @@ Mirrors the analogous tests in agri-api/back/analytics/tests/test_agronomy.py
 that exercise the math directly (the integration tests against the Django
 ORM stay in agri-api).
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -126,13 +127,19 @@ class TestSolarGeometry:
     def test_extraterrestrial_radiation_nonzero_at_noon(self):
         # Mid-day in summer at a temperate latitude → Ra > 2 MJ/m²/h
         ra = extraterrestrial_radiation_hourly_mjm2h(
-            lat_deg=33.0, lon_deg=-7.6, day_of_year=170, local_clock_hour=12.0,
+            lat_deg=33.0,
+            lon_deg=-7.6,
+            day_of_year=170,
+            local_clock_hour=12.0,
         )
         assert ra > 2.0
 
     def test_extraterrestrial_radiation_zero_at_midnight(self):
         ra = extraterrestrial_radiation_hourly_mjm2h(
-            lat_deg=33.0, lon_deg=-7.6, day_of_year=170, local_clock_hour=0.0,
+            lat_deg=33.0,
+            lon_deg=-7.6,
+            day_of_year=170,
+            local_clock_hour=0.0,
         )
         assert ra == 0.0
 
@@ -187,12 +194,8 @@ class TestPenmanMonteithHourly:
         assert result["daytime"] is False
 
     def test_higher_temp_pushes_et0_up_at_same_rh(self):
-        cool = penman_monteith_hourly_mm(
-            **{**self.NOON_INPUTS, "temp_c": 15.0}
-        )
-        warm = penman_monteith_hourly_mm(
-            **{**self.NOON_INPUTS, "temp_c": 35.0}
-        )
+        cool = penman_monteith_hourly_mm(**{**self.NOON_INPUTS, "temp_c": 15.0})
+        warm = penman_monteith_hourly_mm(**{**self.NOON_INPUTS, "temp_c": 35.0})
         assert warm["et0_mm_per_h"] > cool["et0_mm_per_h"]
 
     def test_with_ra_uses_proper_cloudiness(self):
@@ -215,7 +218,7 @@ def _full_inputs(**overrides) -> Et0Inputs:
         temp_c=25.0,
         rh_pct=50.0,
         wind_ms=2.0,
-        rs_wm2=700.0,        # ~2.5 MJ/m²/h
+        rs_wm2=700.0,  # ~2.5 MJ/m²/h
         pressure_hpa=1013.0,
         latitude=33.0,
         longitude=-7.6,
