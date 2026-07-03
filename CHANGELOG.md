@@ -1,6 +1,19 @@
 # CHANGELOG
 
 
+## v0.19.0 (2026-07-03)
+
+### Features
+
+- **deps**: Bump agri-db pin 0.12.0 -> 0.14.0 ([#53](https://github.com/AgriLogy/agri-core/pull/53),
+  [`623b00a`](https://github.com/AgriLogy/agri-core/commit/623b00ac5bfe27ac77d94973a6c6ca136503f69b))
+
+Picks up the 15 ensure-script tables now in Alembic + FeedbackBugreport + CustomUser.is_technician.
+  Test fixtures set is_technician=False (NOT NULL, no server default — Django supplies it in prod)
+  to match the new column. Unblocks the fastapp /feedback port (needs FeedbackBugreport) and closes
+  the api->core->db pin gap.
+
+
 ## v0.18.2 (2026-06-28)
 
 ### Bug Fixes
