@@ -66,6 +66,7 @@ def _make_user(session: Session, *, lat: float | None = 31.6, lon: float | None 
         payement_status="ok",
         is_active=True,
         is_staff=False,
+        is_technician=False,
         notify_every=24,
         date_joined=END,
         latitude=lat,

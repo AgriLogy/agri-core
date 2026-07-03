@@ -64,6 +64,7 @@ def _user(session: Session, firstname: str = "Zak") -> int:
         payement_status="ok",
         is_active=True,
         is_staff=False,
+        is_technician=False,
         notify_every=24,
         date_joined=NOW,
     )
