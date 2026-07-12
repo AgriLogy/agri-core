@@ -27,6 +27,7 @@ from agri.db.analytics import (
     AnalyticsZone,
 )
 from agri.db.base import AgriBase
+from agri.db.devices import AnalyticsDevice
 from agri.db.users import CustomUserCustomuser
 
 END = dt.datetime(2026, 5, 28, 12, 0, tzinfo=dt.UTC)  # a fixed, hour-aligned slot
@@ -43,7 +44,9 @@ WEATHER_MODELS = [
 @pytest.fixture
 def session() -> Session:
     engine = create_engine("sqlite://")
-    tables = [m.__table__ for m in (CustomUserCustomuser, AnalyticsZone, *WEATHER_MODELS)]
+    tables = [
+        m.__table__ for m in (CustomUserCustomuser, AnalyticsZone, AnalyticsDevice, *WEATHER_MODELS)
+    ]
     AgriBase.metadata.create_all(engine, tables=tables)
     with sessionmaker(bind=engine)() as s:
         yield s

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from agri.core.database import AgriMainDBClient
 from agri.db.analytics import AnalyticsNpksensor, AnalyticsTemperatureweather
 from agri.db.base import AgriBase
+from agri.db.devices import AnalyticsDevice
 
 _ids = itertools.count(1)
 
@@ -35,7 +36,9 @@ def _make_session(*tables) -> Session:
     def _register_udf(dbapi_conn, _rec):  # noqa: ANN001
         dbapi_conn.create_function("date_trunc", 2, _trunc_hour)
 
-    AgriBase.metadata.create_all(engine, tables=[t.__table__ for t in tables])
+    AgriBase.metadata.create_all(
+        engine, tables=[t.__table__ for t in tables] + [AnalyticsDevice.__table__]
+    )
     return sessionmaker(bind=engine)()
 
 

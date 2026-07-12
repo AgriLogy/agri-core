@@ -23,6 +23,7 @@ from agri.db.analytics import (
     AnalyticsZone,
 )
 from agri.db.base import AgriBase
+from agri.db.devices import AnalyticsDevice
 from agri.db.users import CustomUserCustomuser
 
 NOW = dt.datetime(2026, 5, 15, 12, 0, tzinfo=dt.UTC)
@@ -40,7 +41,9 @@ _ids = itertools.count(1)
 @pytest.fixture
 def session() -> Session:
     engine = create_engine("sqlite://")
-    AgriBase.metadata.create_all(engine, tables=[m.__table__ for m in _TABLES])
+    AgriBase.metadata.create_all(
+        engine, tables=[m.__table__ for m in _TABLES] + [AnalyticsDevice.__table__]
+    )
     with sessionmaker(bind=engine)() as s:
         yield s
 
