@@ -1,6 +1,23 @@
 # CHANGELOG
 
 
+## v0.21.0 (2026-07-12)
+
+### Features
+
+- **db**: Resolve reading ownership via the device JOIN (device-keyed)
+  ([#58](https://github.com/AgriLogy/agri-core/pull/58),
+  [`9053f7c`](https://github.com/AgriLogy/agri-core/commit/9053f7c1cb360ff228c9476f02adfd1a6132eb2f))
+
+Phase 3: resolve a reading's owner via LEFT JOIN to analytics_device — COALESCE(device.owner,
+  row.owner). Device-sourced rows follow their device on transfer (one-row analytics_device update
+  moves the whole history, no reading rewrite); non-device rows fall back to their own user/zone.
+  Covers hourly_averages / average_value / sum_value / latest_reading + the alert reads. Tests
+  create analytics_device; 125 pass.
+
+Closes #57
+
+
 ## v0.20.0 (2026-07-12)
 
 ### Chores
