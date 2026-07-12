@@ -1,6 +1,30 @@
 # CHANGELOG
 
 
+## v0.20.0 (2026-07-12)
+
+### Chores
+
+- **deps**: Bump agri-db pin 0.14.0 -> 0.15.0 (device_id on readings)
+  ([#55](https://github.com/AgriLogy/agri-core/pull/55),
+  [`75248f6`](https://github.com/AgriLogy/agri-core/commit/75248f6213a5b2ddd4fc83c9fb87621428df7352))
+
+Picks up the additive device_id column on the 37 sensor-reading tables (agri-db #59). No code
+  change; models load + 125 tests pass.
+
+Closes #54
+
+### Features
+
+- **deps**: Release agri-db 0.15.0 pin (device_id on reading tables)
+  ([#56](https://github.com/AgriLogy/agri-core/pull/56),
+  [`d01026f`](https://github.com/AgriLogy/agri-core/commit/d01026fdfd5ba98b18c7a9d031ca9c4fd484b9e1))
+
+The 0.15.0 bump merged as chore(deps), which semantic-release does not release. Cut a proper
+  agri-core release so downstream agri-api can pin it and pick up the device_id column (phase 0 of
+  device-keyed ownership).
+
+
 ## v0.19.0 (2026-07-03)
 
 ### Features
