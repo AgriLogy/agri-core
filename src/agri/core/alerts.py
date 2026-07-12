@@ -494,8 +494,7 @@ def _latest_reading_for(
     if not sensor_key or sensor_key not in SENSOR_KEY_REGISTRY:
         return LatestReading(None, None)
     model = db_model_for(sensor_key)
-    criterion = model.zone_id == zone_id if zone_id else model.user_id == user_id
-    row = AgriMainDBClient.latest(session, model, criterion)
+    row = AgriMainDBClient.latest_reading(session, model, user_id=user_id, zone_id=zone_id)
     if row is None:
         return LatestReading(None, None)
     return LatestReading(value=row.value, timestamp=row.timestamp)
@@ -613,13 +612,20 @@ def suggest_alert_for(
     ``None`` for an unknown ``sensor_key``."""
     from sqlalchemy import select
 
+    from agri.core.database.client import (
+        _owner_user,
+        _owner_zone,
+        _with_device_join,
+    )
+
     if sensor_key not in SENSOR_KEY_REGISTRY:
         return None
     model = db_model_for(sensor_key)
-    criterion = model.zone_id == zone_id if zone_id else model.user_id == user_id
+    # Resolve ownership via the device JOIN so a device's history follows it.
+    owner = _owner_zone(model) == zone_id if zone_id else _owner_user(model) == user_id
     recent = session.scalars(
-        select(model.value)
-        .where(criterion, model.value.is_not(None))
+        _with_device_join(select(model.value), model)
+        .where(owner, model.value.is_not(None))
         .order_by(model.timestamp.desc())
         .limit(limit)
     ).all()
