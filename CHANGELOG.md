@@ -1,6 +1,20 @@
 # CHANGELOG
 
 
+## v0.22.0 (2026-07-17)
+
+### Features
+
+- **deps**: Bump agri-db pin 0.15.0 -> 0.16.0 ([#63](https://github.com/AgriLogy/agri-core/pull/63),
+  [`f6eb276`](https://github.com/AgriLogy/agri-core/commit/f6eb2760d6d0bdd84e0b51a32060fe1d56790b69))
+
+Picks up analytics_device.latitude / longitude (device GPS coordinates) so downstream agri-api can
+  expose them for the farmer map (MAP-1). Additive nullable columns — no code change; lint + 125
+  tests green against 0.16.0.
+
+Closes #62
+
+
 ## v0.21.0 (2026-07-12)
 
 ### Features
