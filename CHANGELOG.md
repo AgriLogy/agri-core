@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.23.0 (2026-07-21)
+
+### Features
+
+- **deps**: Bump agri-db pin 0.16.0 -> 0.17.0 (sector hierarchy)
+  ([#65](https://github.com/AgriLogy/agri-core/pull/65),
+  [`6bf5ebc`](https://github.com/AgriLogy/agri-core/commit/6bf5ebc50703509442311d2cb9555b2bf27730cb))
+
+Closes #64
+
+
 ## v0.22.0 (2026-07-17)
 
 ### Features
