@@ -19,7 +19,7 @@ dependencies = [
     # ownership) so downstream agri-api applies the current migration chain.
     # sqlalchemy is pinned explicitly since
     # this package imports it directly (psycopg arrives transitively).
-    "agri-db @ git+https://github.com/AgriLogy/agri-db.git@0.16.0",
+    "agri-db @ git+https://github.com/AgriLogy/agri-db.git@0.17.0",
     "sqlalchemy>=2.0",
 ]
 
