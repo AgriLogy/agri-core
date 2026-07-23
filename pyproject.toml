@@ -11,15 +11,15 @@ dependencies = [
     "pydantic>=2.10",
     # The schema-of-record (SQLAlchemy ORM models that agri.core.database
     # queries). Pinned by git tag — full Revly, mirrors revly-core →
-    # data-model@<tag>. agri-db is PRIVATE, so CI/Docker need a read-only PAT
-    # (AGRI_DB_RO_TOKEN) configured as a git credential for `uv sync` to
-    # fetch it. For local co-dev against an unreleased agri-db, override with
+    # data-model@<tag>. agri-db is PUBLIC as of 2026-07-23, so no PAT is
+    # needed to fetch it (AGRI_DB_RO_TOKEN is retained in CI for now but is
+    # no longer required). For local co-dev against an unreleased agri-db, override with
     # `uv pip install -e ../agri-db`. Keep this at >= the live schema head
-    # (0.15.x — adds device_id on the reading tables for device-keyed
-    # ownership) so downstream agri-api applies the current migration chain.
+    # (0.18.0 — alert-event/irrigation-decision history + sensor groups and
+    # per-sensor calibration) so downstream agri-api applies the current chain.
     # sqlalchemy is pinned explicitly since
     # this package imports it directly (psycopg arrives transitively).
-    "agri-db @ git+https://github.com/AgriLogy/agri-db.git@0.17.0",
+    "agri-db @ git+https://github.com/AgriLogy/agri-db.git@0.18.0",
     "sqlalchemy>=2.0",
 ]
 
