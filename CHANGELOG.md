@@ -1,6 +1,20 @@
 # CHANGELOG
 
 
+## v0.24.0 (2026-07-23)
+
+### Documentation
+
+- Add CONTRIBUTING.md ([#67](https://github.com/AgriLogy/agri-core/pull/67),
+  [`ac93ac1`](https://github.com/AgriLogy/agri-core/commit/ac93ac1552834d2987865837067a402c27e19af0))
+
+### Features
+
+- **calibration**: Apply calibration and convert units
+  ([#69](https://github.com/AgriLogy/agri-core/pull/69),
+  [`d69f0aa`](https://github.com/AgriLogy/agri-core/commit/d69f0aaf7701934f19b36f2866d3ecf6c02c7656))
+
+
 ## v0.23.0 (2026-07-21)
 
 ### Features
