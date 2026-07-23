@@ -1,6 +1,15 @@
 # CHANGELOG
 
 
+## v0.24.1 (2026-07-23)
+
+### Bug Fixes
+
+- **format**: Blank line after the module docstring
+  ([#71](https://github.com/AgriLogy/agri-core/pull/71),
+  [`28cbc82`](https://github.com/AgriLogy/agri-core/commit/28cbc82b84948be878b95528446c0805c2210f9c))
+
+
 ## v0.24.0 (2026-07-23)
 
 ### Documentation
