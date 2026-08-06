@@ -1,6 +1,30 @@
 # CHANGELOG
 
 
+## v0.27.0 (2026-08-06)
+
+### Features
+
+- **geometry**: Geodesic area, perimeter and validation for GeoJSON polygons
+  ([#74](https://github.com/AgriLogy/agri-core/pull/74),
+  [`41f1b91`](https://github.com/AgriLogy/agri-core/commit/41f1b91296f5babdf4f7270a00c849dac9f3fcca))
+
+Adds agri.core.geometry: validate_polygon, area_m2/area_hectares (holes subtracted), perimeter_m
+  (outer boundary only) and centroid.
+
+Business-logic half of the sector-geometry move: once sector shapes are server-owned, the server
+  must own their derived numbers too, or a client-computed area drifts from the shape it describes.
+
+Spherical excess and haversine on the mean Earth radius rather than an ellipsoidal model — ~0.1-0.3%
+  at Moroccan latitudes, far below the GPS error of a hand-drawn polygon, and it keeps the module
+  free of shapely/pyproj/GEOS so a pure lib can host it.
+
+Handles winding order, unclosed rings, the Feature wrapper, swapped lat/lon, NaN coordinates and
+  antimeridian straddling explicitly.
+
+26 tests, area anchored on the closed form R^2*dlambda*(sin phi2 - sin phi1).
+
+
 ## v0.26.0 (2026-07-23)
 
 ### Features
