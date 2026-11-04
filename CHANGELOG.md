@@ -1,6 +1,26 @@
 # CHANGELOG
 
 
+## v0.27.1 (2026-11-04)
+
+### Bug Fixes
+
+- **deps**: Bump agri-db pin 0.19.0 -> 0.23.1 ([#76](https://github.com/AgriLogy/agri-core/pull/76),
+  [`6de808f`](https://github.com/AgriLogy/agri-core/commit/6de808f24f573d9e098ee6b5d304220ef3368063))
+
+* fix(deps): bump agri-db pin 0.19.0 -> 0.22.0
+
+agri-api resolves agri-db through this pin, so its ORM still lacks sector geometry (0.20.0), the
+  rectangular-basin and borehole/forage zone columns and the foragesensor table (0.21/0.22). fastapp
+  therefore drops fields Django serves and agri-api's CI has 10 parity failures on main. agri-core's
+  own suite passes unchanged against 0.22.0 (299 tests).
+
+* fix(deps): bump agri-db pin to 0.23.1
+
+0.23.1 also carries activegraph.forage_level_status (agri-db#80) and the farm-map tables
+  (agri-db#78), which agri-api needs next.
+
+
 ## v0.27.0 (2026-08-06)
 
 ### Features
