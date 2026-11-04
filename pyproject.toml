@@ -15,12 +15,12 @@ dependencies = [
     # needed to fetch it (AGRI_DB_RO_TOKEN is retained in CI for now but is
     # no longer required). For local co-dev against an unreleased agri-db, override with
     # `uv pip install -e ../agri-db`. Keep this at >= the live schema head
-    # (0.22.0 — sector geometry, rectangular basin + borehole/forage zone
-    # columns and the foragesensor table) so downstream agri-api's ORM maps the
-    # columns Django already serves.
+    # (0.23.1 — sector geometry, rectangular basin + borehole/forage zone
+    # columns, foragesensor, activegraph.forage_level_status, and the farm-map
+    # tables) so downstream agri-api's ORM maps the columns Django serves.
     # sqlalchemy is pinned explicitly since
     # this package imports it directly (psycopg arrives transitively).
-    "agri-db @ git+https://github.com/AgriLogy/agri-db.git@0.22.0",
+    "agri-db @ git+https://github.com/AgriLogy/agri-db.git@0.23.1",
     "sqlalchemy>=2.0",
 ]
 
