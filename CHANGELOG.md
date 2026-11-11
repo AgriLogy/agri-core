@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.28.1 (2026-11-11)
+
+### Bug Fixes
+
+- **deps**: Pin agri-db 0.25.0 (assistant knowledge base)
+  ([#80](https://github.com/AgriLogy/agri-core/pull/80),
+  [`d1ebb70`](https://github.com/AgriLogy/agri-core/commit/d1ebb70f165092d33d68cb9d14aec88d8901dc7e))
+
+Closes #79
+
+
 ## v0.28.0 (2026-11-11)
 
 ### Features
