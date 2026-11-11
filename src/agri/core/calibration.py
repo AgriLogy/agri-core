@@ -25,6 +25,12 @@ Owns:
   re-express a calibration in a different target unit by recomputing
   ``scale_a`` and ``offset_b`` deterministically.
 
+**General calibration (agri-api #460).** A :class:`Calibration` may instead
+carry an ``equation`` in ``x`` with fitted ``coefficients``; it then replaces
+the affine pair everywhere in this module (apply, unit retargeting). Parsing,
+evaluation and fitting from reference points live in
+:mod:`agri.core.calibration_equation`.
+
 **Known gap.** The referenced ``change.the.unite.of.sensors…1.3.pdf`` is
 unavailable, so any non-standard or vendor-specific conversion it
 specifies is *not* in this table. Only conversions justifiable from
@@ -43,7 +49,8 @@ surfaces cannot diverge. It is the follow-up ticket.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+import json
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from agri.core.alerts import SENSOR_KEY_REGISTRY
@@ -422,11 +429,24 @@ class Calibration:
     offset_b: float = 0.0
     unit: str = ""
     is_active: bool = True
+    equation: str = ""
+    """General calibration equation in ``x`` (agri-api #460), e.g.
+    ``a*x^2 + b*x + c``. When set it REPLACES ``scale_a``/``offset_b``:
+    ``real = equation(raw; coefficients)``. Blank keeps the affine behaviour, so
+    every calibration stored before #460 behaves exactly as it did."""
+    coefficients: dict[str, float] = field(default_factory=dict)
+    """Values of the equation's coefficients (usually fitted by
+    :func:`agri.core.calibration_equation.fit_equation`)."""
+
+    @property
+    def is_equation(self) -> bool:
+        """True when this calibration is equation-based rather than affine."""
+        return bool(self.equation.strip())
 
     @property
     def is_identity(self) -> bool:
         """True when the correction leaves every value unchanged."""
-        return self.scale_a == 1.0 and self.offset_b == 0.0
+        return not self.is_equation and self.scale_a == 1.0 and self.offset_b == 0.0
 
     @classmethod
     def from_row(cls, row: Any) -> Calibration:
@@ -443,7 +463,23 @@ class Calibration:
             offset_b=0.0 if offset_b is None else float(offset_b),
             unit=normalize_unit(getattr(row, "unit", "")),
             is_active=True if is_active is None else bool(is_active),
+            equation=(getattr(row, "equation", None) or "").strip(),
+            coefficients=_coefficients_from(getattr(row, "coefficients", None)),
         )
+
+
+def _coefficients_from(value: Any) -> dict[str, float]:
+    """Coefficients as stored: a dict, a JSON object string, or nothing."""
+    if value is None or value == "":
+        return {}
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise CalibrationError(f"Stored coefficients are not valid JSON: {value!r}") from exc
+    if not isinstance(value, dict):
+        raise CalibrationError(f"Stored coefficients must be an object, got {value!r}.")
+    return {str(name): float(v) for name, v in value.items()}
 
 
 IDENTITY_CALIBRATION = Calibration()
@@ -486,6 +522,11 @@ def apply_calibration(raw: float | None, calibration: Calibration | None) -> flo
         return None
     if calibration is None or not calibration.is_active or calibration.is_identity:
         return raw
+    if calibration.is_equation:
+        # Lazy import: calibration_equation imports this module's errors.
+        from agri.core.calibration_equation import compile_equation_cached
+
+        return compile_equation_cached(calibration.equation).evaluate(raw, calibration.coefficients)
     return raw * calibration.scale_a + calibration.offset_b
 
 
@@ -500,6 +541,10 @@ def invert_calibration(real: float | None, calibration: Calibration | None) -> f
         return None
     if calibration is None or not calibration.is_active or calibration.is_identity:
         return real
+    if calibration.is_equation:
+        raise NonInvertibleCalibrationError(
+            "An equation calibration has no general closed-form inverse."
+        )
     if calibration.scale_a == 0.0:
         raise NonInvertibleCalibrationError(
             "Cannot invert a calibration with scale_a == 0: the forward map is not injective."
@@ -565,6 +610,13 @@ def calibration_in_unit(
             "or pass a known sensor_key."
         )
     scale, offset = conversion_coefficients(source_unit, target_unit)
+    if calibration.is_equation:
+        # Same composition rule, applied to the equation's output instead of
+        # to (a, b): real_u₂ = f(raw) * m + c. Still exact for any f.
+        equation = calibration.equation
+        if (scale, offset) != (1.0, 0.0):
+            equation = f"({equation}) * {scale!r} + {offset!r}"
+        return replace(calibration, equation=equation, unit=normalize_unit(target_unit))
     return replace(
         calibration,
         scale_a=calibration.scale_a * scale,
