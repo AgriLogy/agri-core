@@ -198,3 +198,43 @@ class TestSuggestedAlertPayload:
         payload = suggested_alert_payload("temperature_weather", [], strategy="percentile")
         assert payload is not None
         assert payload["condition_nbr"] == 0.0
+
+
+# --- seasonal window (pure) -------------------------------------------------
+
+
+def test_seasonal_ranges_cover_same_dates_in_previous_years() -> None:
+    import datetime as _dt
+
+    from agri.core.alerts import seasonal_ranges
+
+    ranges = seasonal_ranges(_dt.date(2026, 5, 15), years=2, window_days=15)
+    assert [(lo.date(), hi.date()) for lo, hi in ranges] == [
+        (_dt.date(2025, 4, 30), _dt.date(2025, 5, 31)),
+        (_dt.date(2024, 4, 30), _dt.date(2024, 5, 31)),
+    ]
+    assert all(lo.tzinfo is not None for lo, _ in ranges)
+
+
+def test_seasonal_ranges_handle_leap_day() -> None:
+    import datetime as _dt
+
+    from agri.core.alerts import seasonal_ranges
+
+    ((lo, hi),) = seasonal_ranges(_dt.date(2028, 2, 29), years=1, window_days=0)
+    assert (lo.date(), hi.date()) == (_dt.date(2027, 2, 28), _dt.date(2027, 3, 1))
+
+
+def test_payload_wording_for_seasonal_and_recent() -> None:
+    from agri.core.alerts import suggested_alert_payload
+
+    recent = suggested_alert_payload("temperature_weather", [20.0, 30.0])
+    assert recent["window"] == "recent"
+    assert "2 dernières lectures" in recent["description"]
+
+    seasonal = suggested_alert_payload("temperature_weather", [20.0, 30.0], window="seasonal")
+    assert seasonal["window"] == "seasonal"
+    assert "même période" in seasonal["description"]
+
+    with pytest.raises(ValueError):
+        suggested_alert_payload("temperature_weather", [1.0], window="weekly")
