@@ -1,6 +1,38 @@
 # CHANGELOG
 
 
+## v0.29.0 (2026-11-11)
+
+### Continuous Integration
+
+- Adopt AgriLogy/shared-workflows reusable callers
+  ([#81](https://github.com/AgriLogy/agri-core/pull/81),
+  [`a2d9f5f`](https://github.com/AgriLogy/agri-core/commit/a2d9f5f0fc76024cf0724ab8dcf9643481370b6f))
+
+* ci: adopt AgriLogy/shared-workflows reusable callers
+
+Replace the full workflow bodies with thin @v1 callers (python-lint + python-test, release,
+  lint-pr-title, auto-assign), keeping triggers, the [skip ci] guard, the release concurrency group
+  and the rc dispatch input caller-side. CI now also runs ruff format --check. Add ONBOARDING.md.
+
+Closes #50
+
+* ci: re-trigger checks
+
+### Features
+
+- **alerts**: Seasonal sampling window for the threshold suggestion
+  ([#83](https://github.com/AgriLogy/agri-core/pull/83),
+  [`8f0110c`](https://github.com/AgriLogy/agri-core/commit/8f0110cf81df71d57699994561b3914ae6b870e1))
+
+suggest_alert_for gains window="seasonal": the threshold is computed from readings within ±15 days
+  of today's date in each of the previous 3 years, falling back to the recent sample
+  (seasonal_fallback=True) when that history has fewer than 10 readings. The payload gains window +
+  seasonal_fallback. window="recent" stays the default and its wording is unchanged.
+
+Closes #82
+
+
 ## v0.28.1 (2026-11-11)
 
 ### Bug Fixes
