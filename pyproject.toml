@@ -20,7 +20,7 @@ dependencies = [
     # tables) so downstream agri-api's ORM maps the columns Django serves.
     # sqlalchemy is pinned explicitly since
     # this package imports it directly (psycopg arrives transitively).
-    "agri-db @ git+https://github.com/AgriLogy/agri-db.git@0.24.0",
+    "agri-db @ git+https://github.com/AgriLogy/agri-db.git@0.25.0",
     "sqlalchemy>=2.0",
 ]
 
