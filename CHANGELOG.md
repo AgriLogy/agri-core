@@ -1,6 +1,33 @@
 # CHANGELOG
 
 
+## v0.28.0 (2026-11-11)
+
+### Features
+
+- **calibration**: General equation calibration fitted from reference points
+  ([#78](https://github.com/AgriLogy/agri-core/pull/78),
+  [`98059d0`](https://github.com/AgriLogy/agri-core/commit/98059d02ddaa854618b0fefb1397764555ce6ade))
+
+* feat(calibration): general equation calibration fitted from reference points
+
+AgriLogy/agri-api#460. Calibration can now be any equation in x (the captured value), e.g. a*x^2 +
+  b*x + c, a*exp(b*x), (x + a) % 360. Every other name is a coefficient, fitted by
+  Levenberg-Marquardt (Householder QR steps) to reference points (captured, real), with R2 / RMSE /
+  MAE / max error / residuals reported.
+
+- calibration_equation: whitelisted ast parser compiled to closures (never eval), domain errors
+  raise instead of producing NaN, compile cache for the read path, fit_equation / verify_equation. -
+  Calibration gains equation + coefficients; when set they replace the affine scale_a/offset_b in
+  apply_calibration, calibrated_value and calibration_in_unit (output wrapped as f(x)*m + c). Blank
+  equation keeps the existing affine behaviour unchanged.
+
+* fix(deps): bump agri-db pin 0.23.1 -> 0.24.0
+
+0.24.0 carries the analytics_sensorcalibration equation, coefficients, reference_points and
+  fit_metrics columns (AgriLogy/agri-db#82) that the equation calibration maps.
+
+
 ## v0.27.1 (2026-11-04)
 
 ### Bug Fixes
