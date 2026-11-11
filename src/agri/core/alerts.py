@@ -25,7 +25,7 @@ from __future__ import annotations
 import math
 import statistics
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -358,6 +358,18 @@ _PERCENTILE_HIGH = 90.0
 _PERCENTILE_LOW = 10.0
 _SD_K = 2.0
 
+# Sampling windows for the suggestion. ``recent`` (default, back-compatible)
+# takes the latest ``limit`` readings. ``seasonal`` takes readings from the same
+# calendar window (± ``SEASONAL_WINDOW_DAYS``) in each of the previous
+# ``SEASONAL_YEARS`` years, so an alert created in spring is not calibrated on
+# winter readings. When that history holds fewer than
+# ``SEASONAL_MIN_SAMPLES`` readings it falls back to ``recent`` and says so.
+SUGGEST_WINDOWS = ("recent", "seasonal")
+SEASONAL_WINDOW_DAYS = 15
+SEASONAL_YEARS = 3
+SEASONAL_MIN_SAMPLES = 10
+SEASONAL_SAMPLE_CAP = 5000
+
 
 def _percentile(values: list[float], pct: float) -> float:
     """Linear-interpolation percentile (``pct`` in [0, 100]) over ``values``.
@@ -395,6 +407,8 @@ def suggested_alert_payload(
     recent_values: list[float],
     *,
     strategy: str = "mean",
+    window: str = "recent",
+    seasonal_fallback: bool = False,
 ) -> dict[str, Any] | None:
     """Build the create-alert prefill payload from a list of recent readings.
 
@@ -408,12 +422,20 @@ def suggested_alert_payload(
     ``percentile`` (direction-aware p90/p10), or ``sd`` (mean ± 2σ,
     direction-aware). Raises ``ValueError`` for an unknown strategy.
 
+    ``window`` names how ``recent_values`` were sampled (one of
+    :data:`SUGGEST_WINDOWS`) and only changes the wording: ``seasonal`` means
+    "same period in previous years". ``seasonal_fallback`` marks a seasonal
+    request that had too little history and was answered from recent
+    readings instead. Raises ``ValueError`` for an unknown window.
+
     Returns ``None`` for unknown ``sensor_key``.
     """
     if sensor_key not in SENSOR_KEY_REGISTRY:
         return None
     if strategy not in SUGGEST_STRATEGIES:
         raise ValueError(f"Unknown strategy {strategy!r}; expected one of {SUGGEST_STRATEGIES}.")
+    if window not in SUGGEST_WINDOWS:
+        raise ValueError(f"Unknown window {window!r}; expected one of {SUGGEST_WINDOWS}.")
 
     spec = SENSOR_KEY_REGISTRY[sensor_key]
     mean = round(sum(recent_values) / len(recent_values), 2) if recent_values else None
@@ -430,24 +452,32 @@ def suggested_alert_payload(
 
     threshold = _suggest_threshold(recent_values, condition, strategy) if recent_values else 0.0
     name = f"Alerte — {spec['label']}"
+    n = len(recent_values)
+    if window == "seasonal":
+        sample = (
+            f"{n} lectures de la même période (± {SEASONAL_WINDOW_DAYS} jours) "
+            "les années précédentes"
+        )
+    else:
+        sample = f"{n} dernières lectures"
     if not recent_values:
         description = "Aucune lecture récente — ajustez le seuil manuellement."
     elif strategy == "mean":
         description = (
-            f"Seuil prérempli depuis la moyenne des {len(recent_values)} dernières "
-            f"lectures ({threshold} {spec['unit']})."
+            f"Seuil prérempli depuis la moyenne des {sample} ({threshold} {spec['unit']})."
         )
     elif strategy == "percentile":
         pct = int(_PERCENTILE_HIGH if condition == GREATER_THAN else _PERCENTILE_LOW)
         description = (
-            f"Seuil prérempli depuis le {pct}e centile des {len(recent_values)} "
-            f"dernières lectures ({threshold} {spec['unit']})."
+            f"Seuil prérempli depuis le {pct}e centile des {sample} ({threshold} {spec['unit']})."
         )
     else:  # sd
         description = (
             f"Seuil prérempli depuis moyenne ± {int(_SD_K)} écarts-types des "
-            f"{len(recent_values)} dernières lectures ({threshold} {spec['unit']})."
+            f"{sample} ({threshold} {spec['unit']})."
         )
+    if seasonal_fallback and recent_values:
+        description += " Historique saisonnier insuffisant : lectures récentes utilisées."
 
     return {
         "sensor_key": sensor_key,
@@ -460,6 +490,8 @@ def suggested_alert_payload(
         "condition_nbr": threshold,
         "mean": mean,
         "strategy": strategy,
+        "window": window,
+        "seasonal_fallback": seasonal_fallback,
         "sample_size": len(recent_values),
         "is_active": True,
     }
@@ -597,6 +629,36 @@ def recent_triggers_for_user(
     return out
 
 
+def _years_back(day: date, years: int) -> date:
+    """``day`` moved back ``years`` calendar years (29 Feb → 28 Feb)."""
+    try:
+        return day.replace(year=day.year - years)
+    except ValueError:
+        return day.replace(year=day.year - years, day=28)
+
+
+def seasonal_ranges(
+    today: date,
+    *,
+    years: int = SEASONAL_YEARS,
+    window_days: int = SEASONAL_WINDOW_DAYS,
+) -> list[tuple[datetime, datetime]]:
+    """Half-open UTC ``[start, end)`` ranges covering ``today`` ± ``window_days``
+    in each of the previous ``years`` years, most recent year first."""
+    out: list[tuple[datetime, datetime]] = []
+    for k in range(1, years + 1):
+        center = _years_back(today, k)
+        start = center - timedelta(days=window_days)
+        end = center + timedelta(days=window_days + 1)
+        out.append(
+            (
+                datetime(start.year, start.month, start.day, tzinfo=UTC),
+                datetime(end.year, end.month, end.day, tzinfo=UTC),
+            )
+        )
+    return out
+
+
 def suggest_alert_for(
     session: Session,
     user_id: int,
@@ -605,12 +667,21 @@ def suggest_alert_for(
     zone_id: int | None = None,
     limit: int = 20,
     strategy: str = "mean",
+    window: str = "recent",
+    today: date | None = None,
 ) -> dict[str, Any] | None:
-    """Fetch the recent readings for ``sensor_key`` (scoped to the zone, or
-    the user) and build the create-alert prefill via
-    :func:`suggested_alert_payload` (using ``strategy`` for the threshold).
-    ``None`` for an unknown ``sensor_key``."""
-    from sqlalchemy import select
+    """Fetch readings for ``sensor_key`` (scoped to the zone, or the user) and
+    build the create-alert prefill via :func:`suggested_alert_payload` (using
+    ``strategy`` for the threshold).
+
+    ``window="recent"`` samples the latest ``limit`` readings.
+    ``window="seasonal"`` samples every reading (capped at
+    :data:`SEASONAL_SAMPLE_CAP`) within ± :data:`SEASONAL_WINDOW_DAYS` of
+    ``today``'s date in each of the previous :data:`SEASONAL_YEARS` years; with
+    fewer than :data:`SEASONAL_MIN_SAMPLES` such readings it falls back to the
+    recent sample and sets ``seasonal_fallback``. ``None`` for an unknown
+    ``sensor_key``; ``ValueError`` for an unknown strategy or window."""
+    from sqlalchemy import and_, or_, select
 
     from agri.core.database.client import (
         _owner_user,
@@ -620,16 +691,32 @@ def suggest_alert_for(
 
     if sensor_key not in SENSOR_KEY_REGISTRY:
         return None
+    if window not in SUGGEST_WINDOWS:
+        raise ValueError(f"Unknown window {window!r}; expected one of {SUGGEST_WINDOWS}.")
     model = db_model_for(sensor_key)
     # Resolve ownership via the device JOIN so a device's history follows it.
     owner = _owner_zone(model) == zone_id if zone_id else _owner_user(model) == user_id
-    recent = session.scalars(
-        _with_device_join(select(model.value), model)
-        .where(owner, model.value.is_not(None))
-        .order_by(model.timestamp.desc())
-        .limit(limit)
-    ).all()
-    return suggested_alert_payload(sensor_key, [float(v) for v in recent], strategy=strategy)
+    base = _with_device_join(select(model.value), model).where(owner, model.value.is_not(None))
+
+    if window == "seasonal":
+        ranges = seasonal_ranges(today or datetime.now(UTC).date())
+        in_season = or_(*(and_(model.timestamp >= lo, model.timestamp < hi) for lo, hi in ranges))
+        seasonal = session.scalars(
+            base.where(in_season).order_by(model.timestamp.desc()).limit(SEASONAL_SAMPLE_CAP)
+        ).all()
+        if len(seasonal) >= SEASONAL_MIN_SAMPLES:
+            return suggested_alert_payload(
+                sensor_key, [float(v) for v in seasonal], strategy=strategy, window="seasonal"
+            )
+
+    recent = session.scalars(base.order_by(model.timestamp.desc()).limit(limit)).all()
+    return suggested_alert_payload(
+        sensor_key,
+        [float(v) for v in recent],
+        strategy=strategy,
+        window="recent",
+        seasonal_fallback=window == "seasonal",
+    )
 
 
 __all__ = [
@@ -644,6 +731,8 @@ __all__ = [
     "evaluate_alert",
     "suggested_alert_payload",
     "SUGGEST_STRATEGIES",
+    "SUGGEST_WINDOWS",
+    "seasonal_ranges",
     "db_model_for",
     "effective_zone_id_for_alert",
     "recent_triggers_for_user",

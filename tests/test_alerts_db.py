@@ -182,3 +182,73 @@ def test_notification_zone_alert_reads_from_assigned_source_zone(
     r = rows[0]
     assert r["latest_value"] == pytest.approx(25.0)  # zone 20, not the newer 99
     assert r["is_triggered"] is False  # 25 < 30
+
+
+# --- seasonal window ------------------------------------------------------
+
+TODAY = dt.date(2026, 5, 15)
+
+
+def _season_series(session, uid, year: int, value: float, n: int = 12) -> None:
+    """``n`` readings around 15 May of ``year`` (inside the ±15-day window)."""
+    for i in range(n):
+        ts = dt.datetime(year, 5, 8, tzinfo=dt.UTC) + dt.timedelta(hours=12 * i)
+        _temp(session, uid, value, ts)
+
+
+def test_suggest_seasonal_uses_same_period_of_previous_years(session: Session) -> None:
+    uid = 1
+    _season_series(session, uid, 2025, 30.0)  # last May: hot
+    _season_series(session, uid, 2024, 34.0)  # May two years ago: hotter
+    # Out-of-season history (last winter) must be ignored.
+    for i in range(20):
+        _temp(session, uid, 5.0, dt.datetime(2026, 1, 10, tzinfo=dt.UTC) + dt.timedelta(hours=i))
+    session.flush()
+
+    payload = suggest_alert_for(session, uid, "temperature_weather", window="seasonal", today=TODAY)
+    assert payload is not None
+    assert payload["window"] == "seasonal"
+    assert payload["seasonal_fallback"] is False
+    assert payload["sample_size"] == 24
+    assert payload["condition_nbr"] == pytest.approx(32.0)  # mean of the two Mays
+    assert "même période" in payload["description"]
+
+
+def test_suggest_seasonal_excludes_readings_outside_the_window(session: Session) -> None:
+    uid = 1
+    _season_series(session, uid, 2025, 30.0)
+    # 1 June 2025 is 17 days after 15 May: outside ±15.
+    for i in range(5):
+        _temp(session, uid, 99.0, dt.datetime(2025, 6, 1, tzinfo=dt.UTC) + dt.timedelta(hours=i))
+    session.flush()
+    payload = suggest_alert_for(session, uid, "temperature_weather", window="seasonal", today=TODAY)
+    assert payload["sample_size"] == 12
+    assert payload["condition_nbr"] == pytest.approx(30.0)
+
+
+def test_suggest_seasonal_falls_back_to_recent_without_history(session: Session) -> None:
+    uid = 1
+    for v in (20.0, 30.0, 40.0):
+        _temp(session, uid, v)  # only this year's readings
+    session.flush()
+    payload = suggest_alert_for(session, uid, "temperature_weather", window="seasonal", today=TODAY)
+    assert payload["window"] == "recent"
+    assert payload["seasonal_fallback"] is True
+    assert payload["condition_nbr"] == pytest.approx(30.0)
+    assert "Historique saisonnier insuffisant" in payload["description"]
+
+
+def test_suggest_recent_window_is_unchanged_default(session: Session) -> None:
+    uid = 1
+    _season_series(session, uid, 2025, 30.0)
+    _temp(session, uid, 10.0)
+    session.flush()
+    payload = suggest_alert_for(session, uid, "temperature_weather", limit=1)
+    assert payload["window"] == "recent"
+    assert payload["seasonal_fallback"] is False
+    assert payload["condition_nbr"] == pytest.approx(10.0)
+
+
+def test_suggest_unknown_window_raises(session: Session) -> None:
+    with pytest.raises(ValueError):
+        suggest_alert_for(session, 1, "temperature_weather", window="yearly")
