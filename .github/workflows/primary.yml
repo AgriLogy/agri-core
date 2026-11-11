@@ -1,0 +1,33 @@
+name: CI
+
+# Primary gate: ruff check + ruff format --check, then pytest, via the shared
+# AgriLogy/shared-workflows callers. agri-core pulls the PRIVATE agri-db as a
+# tagged git dependency, so both jobs need the AGRI_DB_RO_TOKEN secret
+# (Contents: Read on AgriLogy/agri-db).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    uses: AgriLogy/shared-workflows/.github/workflows/python-lint.yml@v1
+    with:
+      uv_version: "0.11.6"
+    secrets: inherit
+
+  test:
+    uses: AgriLogy/shared-workflows/.github/workflows/python-test.yml@v1
+    with:
+      uv_version: "0.11.6"
+      needs_agri_db_token: true
+      pytest_args: "-v"
+    secrets: inherit
