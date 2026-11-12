@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.29.1 (2026-11-12)
+
+### Bug Fixes
+
+- **deps**: Resolve agri-db 0.26.0 (notification_push_token)
+  ([#85](https://github.com/AgriLogy/agri-core/pull/85),
+  [`8780d6f`](https://github.com/AgriLogy/agri-core/commit/8780d6fbffa34b37045054aec3e4a7f9bc90ff28))
+
+Closes #84
+
+
 ## v0.29.0 (2026-11-11)
 
 ### Continuous Integration
