@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.30.1 (2026-11-15)
+
+### Bug Fixes
+
+- **deps**: Resolve agri-db 0.27.1 (water_source.zone_ids as jsonb)
+  ([#89](https://github.com/AgriLogy/agri-core/pull/89),
+  [`10680b9`](https://github.com/AgriLogy/agri-core/commit/10680b9a208aeab4ba7b236d9c4a6489763eb3e4))
+
+Closes #88
+
+
 ## v0.30.0 (2026-11-15)
 
 ### Features
