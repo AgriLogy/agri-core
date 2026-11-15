@@ -1,6 +1,25 @@
 # CHANGELOG
 
 
+## v0.30.0 (2026-11-15)
+
+### Features
+
+- **water**: Water level calculations, data status, alerts and reading adapters
+  ([#87](https://github.com/AgriLogy/agri-core/pull/87),
+  [`ef83eba`](https://github.com/AgriLogy/agri-core/commit/ef83ebaff713ff74580496bceb82f53d6b23e3d5))
+
+New pure module agri.core.water_level for AgriLogy/agrilogy-front#261: level normalisation,
+  rectangular / cylindrical / calibration-table volume, fill %, free capacity, usable volume after
+  the minimum reserve, data status (LIVE / SIMULATED / STALE / OFFLINE / INVALID / CALIBRATING), LOW
+  / CRITICAL / HIGH / OFFLINE alert evaluation, and simulator + manual adapters that turn a payload
+  into the standard WaterLevelReading.
+
+Bumps the agri-db pin 0.26.0 -> 0.27.0 (water tables, AgriLogy/agri-db#87).
+
+Closes #86
+
+
 ## v0.29.1 (2026-11-12)
 
 ### Bug Fixes
