@@ -67,6 +67,9 @@ NDVI_LOW_VIGOR = 0.30
 NDVI_DECLINE_PER_WEEK = -0.03
 """A linear NDVI trend at or below this (per week) counts as declining."""
 
+NDVI_STABLE_PER_WEEK = 0.01
+"""A trend smaller than this (either way, per week) is reported as stable."""
+
 NDVI_MAX_AGE_DAYS = 30
 """An NDVI value older than this is too stale to interpret."""
 
@@ -389,8 +392,11 @@ def interpret_vegetation(
     if latest is not None:
         parts.append(f"NDVI {fmt_fr(latest[1], 2)} le {latest[0].strftime('%d/%m')}")
     if trend is not None:
-        sign = "+" if trend > 0 else ""
-        parts.append(f"tendance {sign}{fmt_fr(trend, 2)}/sem.")
+        if abs(trend) < NDVI_STABLE_PER_WEEK:
+            parts.append("tendance stable")
+        else:
+            sign = "+" if trend > 0 else ""
+            parts.append(f"tendance {sign}{fmt_fr(trend, 2)}/sem.")
     if soil_basis:
         parts.append(soil_basis)
     basis = ", ".join(parts)
