@@ -1,6 +1,29 @@
 # CHANGELOG
 
 
+## v0.31.0 (2026-11-23)
+
+### Features
+
+- **agronomy**: Per-sector decision layer and forecast rain
+  ([#91](https://github.com/AgriLogy/agri-core/pull/91),
+  [`5ce65de`](https://github.com/AgriLogy/agri-core/commit/5ce65de7830caa6023865e5fae27562489c0d350))
+
+* feat(agronomy): per-sector decision layer and forecast rain
+
+New agri.core.sector_insights (pure, no DB/HTTP): kc_for_day, run_water_balance (FAO-56 Dr clamped
+  to [0, TAW]), balance_status, recommend (wraps irrigation_decision_dr, French message, volume only
+  when area and pump flow are known) and interpret_vegetation (NDVI level and trend read with soil
+  moisture, or the water balance as a stand-in).
+
+DailyWeatherForecast gains precipitation_mm (default 0) and et0_forecast now returns rain_mm per
+  day.
+
+Closes #90
+
+* feat(deps): resolve agri-db 0.28.0 (satellite history tables)
+
+
 ## v0.30.1 (2026-11-15)
 
 ### Bug Fixes
