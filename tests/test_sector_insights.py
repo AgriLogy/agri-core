@@ -266,3 +266,14 @@ def test_et0_forecast_carries_rain():
     assert out[0]["rain_mm"] == 4.26
     legacy = DailyWeatherForecast(TODAY, 20.0, 60.0, 2.0, 800.0, 1013.0)
     assert et0_forecast([legacy])[0]["rain_mm"] == 0.0
+
+
+def test_flat_trend_reads_as_stable():
+    v = interpret_vegetation(
+        ndvi_points=_series([0.66, 0.664, 0.662, 0.661]),
+        soil_moisture_pct=35.0,
+        critical_moisture_pct=25.0,
+        depletion_ratio=None,
+        today=TODAY,
+    )
+    assert "tendance stable" in v["message"] and "0/sem" not in v["message"]
