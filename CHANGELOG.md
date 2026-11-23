@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.31.1 (2026-11-23)
+
+### Bug Fixes
+
+- **agronomy**: Say 'tendance stable' for a near-flat NDVI trend
+  ([#93](https://github.com/AgriLogy/agri-core/pull/93),
+  [`7fc98ed`](https://github.com/AgriLogy/agri-core/commit/7fc98edd16f4a180721121fc67c5c327464ada7e))
+
+Closes #92
+
+
 ## v0.31.0 (2026-11-23)
 
 ### Features
