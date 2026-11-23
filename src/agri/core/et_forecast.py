@@ -39,6 +39,8 @@ class DailyWeatherForecast:
     wind_ms: float
     rs_wm2: float
     pressure_hpa: float
+    precipitation_mm: float = 0.0
+    """Daily rain total (mm). Defaults to 0 for providers that don't report it."""
 
 
 # Diurnal shape constants (deterministic; tuned for a temperate/Mediterranean
@@ -118,9 +120,15 @@ def et0_forecast(
     longitude: float | None = None,
     elevation_m: float = 0.0,
 ) -> list[dict[str, float | str]]:
-    """Map N forecast days → ``[{date, et0_mm}, ...]`` (et0_mm rounded to 2dp)."""
+    """Map N forecast days → ``[{date, et0_mm, rain_mm}, ...]`` (rounded to 2dp)."""
     out: list[dict[str, float | str]] = []
     for d in days:
         et0 = daily_et0_mm(d, latitude=latitude, longitude=longitude, elevation_m=elevation_m)
-        out.append({"date": d.day.isoformat(), "et0_mm": round(et0, 2)})
+        out.append(
+            {
+                "date": d.day.isoformat(),
+                "et0_mm": round(et0, 2),
+                "rain_mm": round(max(0.0, d.precipitation_mm), 2),
+            }
+        )
     return out
