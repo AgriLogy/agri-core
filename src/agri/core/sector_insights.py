@@ -11,7 +11,7 @@ Three pieces:
   from an assumed field-capacity start, clamped to ``[0, TAW]``.
 * :func:`recommend`         — irrigate / wait / nothing, through the existing
   :func:`agri.core.agronomy.irrigation_decision_dr` (same rules as the daily
-  email), with a French message.
+  email), with a message in French, Arabic or English.
 * :func:`interpret_vegetation` — NDVI level + trend read together with soil
   moisture → healthy / water stress / excess water / low vigour (non-water) /
   declining / insufficient data.
@@ -19,6 +19,9 @@ Three pieces:
 The vegetation rules are agronomic heuristics, not a diagnosis: NDVI is canopy
 vigour from 10 m pixels. Every message says what it is based on, and the
 thresholds below are named so an agronomist can tune them.
+
+Messages and labels come from :mod:`agri.core.sector_insights_i18n`
+(``lang="fr" | "ar" | "en"``, French by default; codes never change).
 """
 
 from __future__ import annotations
@@ -38,22 +41,34 @@ from agri.core.agronomy import (
     irrigation_decision_dr,
     update_daily_depletion,
 )
+from agri.core.sector_insights_i18n import (
+    LABELS,
+    MESSAGES,
+    SUPPORTED_LANGS,
+    fmt_day,
+    fmt_num,
+    normalize_lang,
+)
 
 __all__ = [
     "IRRIGATE_SOON_RATIO",
     "NDVI_DECLINE_PER_WEEK",
     "NDVI_LOW_VIGOR",
     "NDVI_MAX_AGE_DAYS",
+    "SUPPORTED_LANGS",
     "WET_MARGIN_PCT",
     "BalanceDay",
     "BalanceRow",
     "KcPeriod",
     "balance_status",
+    "fmt_day",
     "fmt_fr",
+    "fmt_num",
     "irrigation_depth_mm",
     "interpret_vegetation",
     "kc_for_day",
     "ndvi_trend_per_week",
+    "normalize_lang",
     "recommend",
     "run_water_balance",
 ]
@@ -81,12 +96,15 @@ WET_MARGIN_PCT = 20.0
 
 
 # ---------------------------------------------------------------------------
-# French number formatting
+# Number formatting (French helper; per-language in sector_insights_i18n)
 # ---------------------------------------------------------------------------
 
 
 def fmt_fr(value: float, decimals: int = 1) -> str:
-    """``12.5`` → ``"12,5"``; trailing ``,0`` dropped (``"12"``)."""
+    """``12.5`` → ``"12,5"``; trailing ``,0`` dropped (``"12"``).
+
+    Kept as-is for existing callers; :func:`fmt_num` is the per-language form.
+    """
     text = f"{value:.{decimals}f}"
     if decimals and text.endswith("." + "0" * decimals):
         text = text[: -(decimals + 1)]
@@ -231,8 +249,11 @@ def recommend(
     pump_flow_l_per_s: float | None,
     max_water_per_day_l: float | None,
     rain_next_48h_mm: float,
+    lang: str = "fr",
 ) -> dict[str, Any]:
     """Irrigate / wait / nothing, with volume + duration when computable.
+
+    ``lang`` (fr | ar | en, unknown → fr) only changes ``message``.
 
     Uses :func:`irrigation_decision_dr` (the rules of the daily email). The
     trigger does not depend on the sector's area or pump; only the volume and
@@ -258,43 +279,42 @@ def recommend(
     volume = round(decision.volume_m3, 2) if has_volume and decision.irrigate else None
     duration = round(decision.duration_hr * 60.0, 0) if has_volume and decision.irrigate else None
 
+    lang = normalize_lang(lang)
+    t = MESSAGES[lang]
+
+    def n(value: float, decimals: int = 1) -> str:
+        return fmt_num(value, decimals, lang)
+
     if decision.irrigate:
         action = "irrigate"
         if volume is not None and duration is not None:
-            amount = f"{fmt_fr(volume)} m³ (≈ {fmt_fr(duration, 0)} min)"
+            amount = t["amount_volume"].format(volume=n(volume), duration=n(duration, 0))
         else:
-            amount = f"≈ {fmt_fr(decision.gross_mm)} mm"
-        why = {
-            "stress": (
-                f"le déficit du sol ({fmt_fr(dr_mm)} mm) dépasse la réserve "
-                f"facilement utilisable ({fmt_fr(raw_mm)} mm)"
-            ),
-            "soil_moisture_low": (
-                f"l'humidité du sol ({fmt_fr(soil_moisture_pct or 0.0, 0)} %) est sous "
-                f"le seuil critique ({fmt_fr(critical, 0)} %)"
-            ),
-            "complementary": (
-                f"la pluie prévue ({fmt_fr(rain_next_48h_mm)} mm sur 48 h) ne suffira pas"
-            ),
-        }.get(decision.reason, decision.reason)
-        lead = "Irrigation complémentaire de" if decision.reason == "complementary" else "Irriguer"
-        message = f"{lead} {amount} — {why}."
+            amount = t["amount_depth"].format(depth=n(decision.gross_mm))
+        why_template = t.get(f"why_{decision.reason}")
+        why = (
+            why_template.format(
+                dr=n(dr_mm),
+                raw=n(raw_mm),
+                moisture=n(soil_moisture_pct or 0.0, 0),
+                critical=n(critical, 0),
+                rain=n(rain_next_48h_mm),
+            )
+            if why_template is not None
+            else decision.reason
+        )
+        key = "irrigate_complementary" if decision.reason == "complementary" else "irrigate"
+        message = t[key].format(amount=amount, why=why)
         if decision.capped_to_daily_max:
-            message += " Volume plafonné au maximum journalier de la zone."
+            message += t["capped"]
         if volume is None:
-            message += " Renseignez la surface et le débit de la pompe pour obtenir le volume."
+            message += t["need_area_flow"]
     elif decision.reason == "rain_will_suffice":
         action = "wait"
-        message = (
-            f"Attendre — {fmt_fr(rain_next_48h_mm)} mm de pluie prévus dans les 48 h "
-            "devraient suffire."
-        )
+        message = t["wait"].format(rain=n(rain_next_48h_mm))
     else:
         action = "none"
-        message = (
-            f"Pas d'irrigation nécessaire — déficit de {fmt_fr(dr_mm)} mm, sous la "
-            f"réserve facilement utilisable ({fmt_fr(raw_mm)} mm)."
-        )
+        message = t["none"].format(dr=n(dr_mm), raw=n(raw_mm))
 
     return {
         "action": action,
@@ -339,14 +359,7 @@ def ndvi_trend_per_week(
     return round(slope_per_day * 7.0, 3), n
 
 
-_VEG_LABELS = {
-    "healthy": "Végétation saine",
-    "water_stress": "Stress hydrique probable",
-    "excess_water": "Excès d'eau probable",
-    "low_vigor_other": "Faible vigueur (cause non hydrique)",
-    "declining": "Vigueur en baisse",
-    "insufficient_data": "Données insuffisantes",
-}
+_VEG_LABELS = LABELS["fr"]  # kept for importers of the French labels
 
 
 def interpret_vegetation(
@@ -356,12 +369,17 @@ def interpret_vegetation(
     critical_moisture_pct: float | None,
     depletion_ratio: float | None,
     today: date,
+    lang: str = "fr",
 ) -> dict[str, Any]:
     """Read NDVI (level + trend) together with soil water.
+
+    ``lang`` (fr | ar | en, unknown → fr) only changes ``label`` and ``message``.
 
     ``depletion_ratio`` is Dr / RAW from the water balance (None when not
     computed); it stands in for a missing soil-moisture probe.
     """
+    lang = normalize_lang(lang)
+    t = MESSAGES[lang]
     critical = (
         critical_moisture_pct
         if critical_moisture_pct is not None
@@ -375,11 +393,11 @@ def interpret_vegetation(
     if soil_moisture_pct is not None:
         dry = soil_moisture_pct < critical
         wet = soil_moisture_pct >= critical + WET_MARGIN_PCT
-        soil_basis = f"humidité du sol {fmt_fr(soil_moisture_pct, 0)} %"
+        soil_basis = t["basis_soil_probe"].format(moisture=fmt_num(soil_moisture_pct, 0, lang))
     elif depletion_ratio is not None:
         dry = depletion_ratio >= 1.0
         wet = False
-        soil_basis = f"bilan hydrique (déficit à {fmt_fr(depletion_ratio * 100, 0)} % de la RFU)"
+        soil_basis = t["basis_soil_balance"].format(pct=fmt_num(depletion_ratio * 100, 0, lang))
     else:
         dry = wet = False
         soil_basis = None
@@ -390,62 +408,53 @@ def interpret_vegetation(
 
     parts: list[str] = []
     if latest is not None:
-        parts.append(f"NDVI {fmt_fr(latest[1], 2)} le {latest[0].strftime('%d/%m')}")
+        parts.append(
+            t["basis_ndvi"].format(ndvi=fmt_num(latest[1], 2, lang), day=fmt_day(latest[0], lang))
+        )
     if trend is not None:
         if abs(trend) < NDVI_STABLE_PER_WEEK:
-            parts.append("tendance stable")
+            parts.append(t["basis_trend_stable"])
         else:
             sign = "+" if trend > 0 else ""
-            parts.append(f"tendance {sign}{fmt_fr(trend, 2)}/sem.")
+            parts.append(t["basis_trend"].format(trend=f"{sign}{fmt_num(trend, 2, lang)}"))
     if soil_basis:
         parts.append(soil_basis)
-    basis = ", ".join(parts)
+    basis = t["basis_sep"].join(parts)
 
     if latest is None and soil_basis is None:
         status = "insufficient_data"
-        message = "Pas d'image satellite récente ni de mesure d'humidité du sol pour ce secteur."
+        message = t["veg_no_data"]
         confidence = "low"
     elif latest is None:
         status = "water_stress" if dry else "insufficient_data"
-        message = f"Pas d'image satellite récente (nuages ?) ; {soil_basis}." + (
-            " Le sol est sec : vérifier l'irrigation." if dry else ""
-        )
+        message = t["veg_no_image"].format(soil=soil_basis) + (t["veg_no_image_dry"] if dry else "")
         confidence = "low"
     elif weak and dry:
         status = "water_stress"
-        message = f"{basis}. Végétation affaiblie et sol sec : vérifier l'irrigation."
+        message = t["veg_stress"].format(basis=basis)
         confidence = "high" if soil_moisture_pct is not None and trend is not None else "medium"
     elif weak and wet:
         status = "excess_water"
-        message = (
-            f"{basis}. Végétation affaiblie et sol très humide : risque d'asphyxie racinaire, "
-            "réduire les apports et vérifier le drainage."
-        )
+        message = t["veg_excess"].format(basis=basis)
         confidence = "medium"
     elif weak and soil_basis is not None:
         status = "low_vigor_other"
-        message = (
-            f"{basis}. Le sol n'est pas sec : chercher une autre cause "
-            "(nutrition, maladie, ravageurs, densité de semis)."
-        )
+        message = t["veg_other_cause"].format(basis=basis)
         confidence = "medium"
     elif weak:
         status = "declining" if declining else "low_vigor_other"
-        message = f"{basis}. Pas de mesure du sol pour en trouver la cause."
+        message = t["veg_no_soil"].format(basis=basis)
         confidence = "low"
     else:
         status = "healthy"
-        message = f"{basis}."
+        message = t["veg_healthy"].format(basis=basis)
         if dry:
-            message += (
-                " Végétation encore vigoureuse mais sol sec : "
-                "irriguer avant l'apparition du stress."
-            )
+            message += t["veg_healthy_dry"]
         confidence = "medium" if trend is None else "high"
 
     return {
         "status": status,
-        "label": _VEG_LABELS[status],
+        "label": LABELS[lang][status],
         "message": message[0].upper() + message[1:],
         "confidence": confidence,
         "ndvi": (
