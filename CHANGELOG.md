@@ -1,6 +1,21 @@
 # CHANGELOG
 
 
+## v0.32.0 (2026-11-23)
+
+### Features
+
+- **agronomy**: Sector insight messages in French, Arabic and English
+  ([#95](https://github.com/AgriLogy/agri-core/pull/95),
+  [`91a5bd6`](https://github.com/AgriLogy/agri-core/commit/91a5bd61e784621a9ea9270eb7b675bb669046c9))
+
+recommend() and interpret_vegetation() take a lang keyword (fr | ar | en, unknown falls back to fr).
+  Templates and labels live in a catalog in sector_insights_i18n.py, with per-language number and
+  date formatting. French output is byte-identical to before; codes are unchanged.
+
+Closes 94
+
+
 ## v0.31.1 (2026-11-23)
 
 ### Bug Fixes
