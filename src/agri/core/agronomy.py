@@ -278,6 +278,36 @@ def is_daytime(rs_mjm2h: float) -> bool:
     return rs_mjm2h > 0.0
 
 
+PRESSURE_PLAUSIBLE_HPA = (500.0, 1100.0)
+"""Station pressure outside this range is a unit or sensor fault (e.g. a
+device sending hPa×10): ET₀ then uses the elevation's standard pressure."""
+
+HARGREAVES_KRS = 0.16
+"""FAO-56 eq. 50 adjustment coefficient: 0.16 for interior locations (where
+land mass dominates), 0.19 for coastal ones."""
+
+DEAD_PYRANOMETER_RA_MJM2H = 0.3
+"""Above this hourly extraterrestrial radiation (~85 W/m²) the sun is well up:
+a pyranometer reading ~0 W/m² is a fault, since even overcast skies give
+diffuse light."""
+
+DEAD_PYRANOMETER_RS_WM2 = 1.0
+
+DEFAULT_WIND_MS = 2.0
+"""FAO-56's stand-in for missing wind speed at 2 m (§ "Missing data")."""
+
+
+def standard_pressure_kpa(elevation_m: float) -> float:
+    """FAO-56 eq. 7: atmospheric pressure from elevation (kPa)."""
+    return 101.3 * ((293.0 - 0.0065 * elevation_m) / 293.0) ** 5.26
+
+
+def hargreaves_rs_mjm2h(ra_mjm2h: float, temp_max_c: float, temp_min_c: float) -> float:
+    """FAO-56 eq. 50: solar radiation from the daily temperature range,
+    applied to one hour of extraterrestrial radiation (MJ/m²/h)."""
+    return HARGREAVES_KRS * max(0.0, temp_max_c - temp_min_c) ** 0.5 * ra_mjm2h
+
+
 def penman_monteith_hourly_mm(
     *,
     temp_c: float,
@@ -594,6 +624,13 @@ class Et0Inputs:
     longitude: float | None = None
     elevation_m: float = 0.0
     wind_height_m: float = 2.0
+    temp_max_c: float | None = None
+    """Max / min air temperature over the last 24 h: lets the handler estimate
+    solar radiation (FAO-56 eq. 50) when the pyranometer is dead."""
+    temp_min_c: float | None = None
+    wind_max_24h_ms: float | None = None
+    """Highest wind speed over the last 24 h: 0 means a dead anemometer (a
+    full day of perfect calm does not happen), so ET₀ uses 2 m/s."""
 
 
 @dataclass
@@ -605,6 +642,12 @@ class ZoneEt0:
     timestamp: datetime
     et0_mm_per_h: float
     vpd_kpa: float
+    rs_estimated: bool = False
+    """Solar radiation came from FAO-56 eq. 50, not the pyranometer."""
+    pressure_estimated: bool = False
+    """Pressure came from the elevation (FAO-56 eq. 7), not the station."""
+    wind_estimated: bool = False
+    """Wind was FAO-56's 2 m/s, not the anemometer."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -613,30 +656,38 @@ class ZoneEt0:
             "timestamp": self.timestamp.isoformat(),
             "et0_mm_per_h": self.et0_mm_per_h,
             "vpd_kpa": self.vpd_kpa,
+            "rs_estimated": self.rs_estimated,
+            "pressure_estimated": self.pressure_estimated,
+            "wind_estimated": self.wind_estimated,
         }
 
 
 def compute_zone_et0(inputs: Et0Inputs) -> ZoneEt0 | None:
     """One hour of FAO-56 Penman-Monteith ET₀ + VPD for the zone.
 
-    Returns ``None`` if any of the required weather inputs is missing
-    for the slot (sensor outage / no data). When ``latitude`` and
-    ``longitude`` are supplied, the extraterrestrial radiation Ra is
-    computed for the midpoint of the hour window using local civil
-    time at ``DEPLOYMENT_LOCAL_TZ``; otherwise net radiation falls
-    back to the 0.75 mid-band heuristic.
+    Returns ``None`` if temperature or humidity is missing for the slot
+    (sensor outage / no data). When ``latitude`` and ``longitude`` are
+    supplied, the extraterrestrial radiation Ra is computed for the midpoint
+    of the hour window using local civil time at ``DEPLOYMENT_LOCAL_TZ``;
+    otherwise net radiation falls back to the 0.75 mid-band heuristic.
+
+    Three FAO-56 substitutions, flagged on the result:
+
+    * pressure missing or implausible (``PRESSURE_PLAUSIBLE_HPA``) → the
+      elevation's standard pressure (eq. 7);
+    * solar radiation missing, or ~0 while the sun is well up (a dead
+      pyranometer) → estimated from the 24 h temperature range (eq. 50), when
+      Ra and that range are known. Otherwise a missing Rs still yields None;
+    * wind missing, or 0 for the whole last 24 h (a dead anemometer) → 2 m/s
+      at 2 m.
     """
-    if any(
-        v is None
-        for v in (
-            inputs.temp_c,
-            inputs.rh_pct,
-            inputs.wind_ms,
-            inputs.rs_wm2,
-            inputs.pressure_hpa,
-        )
-    ):
+    if any(v is None for v in (inputs.temp_c, inputs.rh_pct)):
         return None
+    wind_estimated = inputs.wind_ms is None or (
+        inputs.wind_max_24h_ms is not None and inputs.wind_max_24h_ms <= 0
+    )
+    wind_ms = DEFAULT_WIND_MS if wind_estimated else inputs.wind_ms
+    wind_height_m = 2.0 if wind_estimated else inputs.wind_height_m
 
     ra_mjm2h: float | None = None
     if inputs.latitude is not None and inputs.longitude is not None:
@@ -648,15 +699,41 @@ def compute_zone_et0(inputs: Et0Inputs) -> ZoneEt0 | None:
             local_clock_hour=midpoint_local.hour + midpoint_local.minute / 60.0,
         )
 
+    lo, hi = PRESSURE_PLAUSIBLE_HPA
+    pressure_estimated = inputs.pressure_hpa is None or not lo <= inputs.pressure_hpa <= hi
+    pressure_kpa = (
+        standard_pressure_kpa(inputs.elevation_m)
+        if pressure_estimated
+        else inputs.pressure_hpa * 0.1
+    )
+
+    rs_mjm2h = wperm2_to_mjm2_per_hour(inputs.rs_wm2) if inputs.rs_wm2 is not None else None
+    sensor_dead = inputs.rs_wm2 is None or (
+        inputs.rs_wm2 < DEAD_PYRANOMETER_RS_WM2
+        and ra_mjm2h is not None
+        and ra_mjm2h > DEAD_PYRANOMETER_RA_MJM2H
+    )
+    rs_estimated = False
+    if (
+        sensor_dead
+        and ra_mjm2h is not None
+        and inputs.temp_max_c is not None
+        and inputs.temp_min_c is not None
+    ):
+        rs_mjm2h = hargreaves_rs_mjm2h(ra_mjm2h, inputs.temp_max_c, inputs.temp_min_c)
+        rs_estimated = True
+    if rs_mjm2h is None:
+        return None
+
     result = penman_monteith_hourly_mm(
         temp_c=inputs.temp_c,
         rh_pct=inputs.rh_pct,
-        wind_ms=inputs.wind_ms,
-        pressure_kpa=inputs.pressure_hpa * 0.1,
-        rs_mjm2h=wperm2_to_mjm2_per_hour(inputs.rs_wm2),
+        wind_ms=wind_ms,
+        pressure_kpa=pressure_kpa,
+        rs_mjm2h=rs_mjm2h,
         ra_mjm2h=ra_mjm2h,
         elevation_m=inputs.elevation_m,
-        wind_height_m=inputs.wind_height_m,
+        wind_height_m=wind_height_m,
     )
 
     return ZoneEt0(
@@ -665,6 +742,9 @@ def compute_zone_et0(inputs: Et0Inputs) -> ZoneEt0 | None:
         timestamp=inputs.timestamp,
         et0_mm_per_h=result["et0_mm_per_h"],
         vpd_kpa=result["vpd_kpa"],
+        rs_estimated=rs_estimated,
+        pressure_estimated=pressure_estimated,
+        wind_estimated=wind_estimated,
     )
 
 
@@ -707,6 +787,20 @@ def compute_et0_for_zone(
     def avg(model: type) -> float | None:
         return AgriMainDBClient.average_value(session, model, zone_id=zone_id, start=start, end=end)
 
+    temp_min_c, temp_max_c = AgriMainDBClient.value_range(
+        session,
+        AnalyticsTemperatureweather,
+        zone_id=zone_id,
+        start=end - timedelta(hours=24),
+        end=end,
+    )
+    _, wind_max_24h_ms = AgriMainDBClient.value_range(
+        session,
+        AnalyticsWindspeed,
+        zone_id=zone_id,
+        start=end - timedelta(hours=24),
+        end=end,
+    )
     user = zone.user
     return compute_zone_et0(
         Et0Inputs(
@@ -721,6 +815,9 @@ def compute_et0_for_zone(
             latitude=user.latitude if user is not None else None,
             longitude=user.longitude if user is not None else None,
             elevation_m=zone.elevation_m or 0.0,
+            temp_max_c=temp_max_c,
+            temp_min_c=temp_min_c,
+            wind_max_24h_ms=wind_max_24h_ms,
         )
     )
 
@@ -1032,6 +1129,11 @@ __all__ = [
     "CLOUD_FACTOR_MIN",
     # FAO-56 hourly math
     "saturation_vapor_pressure_kpa",
+    "standard_pressure_kpa",
+    "hargreaves_rs_mjm2h",
+    "PRESSURE_PLAUSIBLE_HPA",
+    "HARGREAVES_KRS",
+    "DEFAULT_WIND_MS",
     "slope_svp_kpa_per_c",
     "psychrometric_constant_kpa_per_c",
     "wperm2_to_mjm2_per_hour",

@@ -24,12 +24,14 @@ from agri.core.agronomy import (
     compute_zone_et0,
     equation_of_time_minutes,
     extraterrestrial_radiation_hourly_mjm2h,
+    hargreaves_rs_mjm2h,
     is_daytime,
     penman_monteith_hourly_mm,
     psychrometric_constant_kpa_per_c,
     saturation_vapor_pressure_kpa,
     slope_svp_kpa_per_c,
     solar_time_correction_hours,
+    standard_pressure_kpa,
     vpd_kpa,
     wind_speed_at_2m,
     wperm2_to_mjm2_per_hour,
@@ -239,8 +241,60 @@ class TestComputeZoneEt0:
     def test_returns_none_if_temp_missing(self):
         assert compute_zone_et0(_full_inputs(temp_c=None)) is None
 
-    def test_returns_none_if_pressure_missing(self):
-        assert compute_zone_et0(_full_inputs(pressure_hpa=None)) is None
+    def test_missing_pressure_uses_the_elevation(self):
+        # FAO-56 eq. 7 instead of giving up on the hour.
+        result = compute_zone_et0(_full_inputs(pressure_hpa=None, elevation_m=790.0))
+        assert result is not None and result.pressure_estimated
+        assert standard_pressure_kpa(0.0) == pytest.approx(101.3)
+        assert standard_pressure_kpa(790.0) == pytest.approx(92.4, abs=0.1)
+
+    def test_implausible_pressure_is_replaced(self):
+        # A station sending hPa×10 (9347) made gamma ten times too big.
+        good = compute_zone_et0(_full_inputs(pressure_hpa=934.7, elevation_m=790.0))
+        bad = compute_zone_et0(_full_inputs(pressure_hpa=9347.0, elevation_m=790.0))
+        assert not good.pressure_estimated and bad.pressure_estimated
+        assert bad.et0_mm_per_h == pytest.approx(good.et0_mm_per_h, rel=0.02)
+
+    def test_dead_pyranometer_at_noon_is_estimated(self):
+        # Sun well up, sensor reading 0: Rs from the 24 h temperature range.
+        dead = compute_zone_et0(_full_inputs(rs_wm2=0.0, temp_max_c=31.0, temp_min_c=15.0))
+        working = compute_zone_et0(_full_inputs(rs_wm2=700.0))
+        assert dead.rs_estimated and not working.rs_estimated
+        assert dead.et0_mm_per_h > 0.3  # a summer noon hour, not 0
+        assert dead.et0_mm_per_h == pytest.approx(working.et0_mm_per_h, rel=0.35)
+
+    def test_dead_pyranometer_without_temperature_range_is_kept(self):
+        # No range to estimate from: the sensor value stands (and stays 0-ish).
+        result = compute_zone_et0(_full_inputs(rs_wm2=0.0))
+        assert result is not None and not result.rs_estimated
+
+    def test_zero_radiation_at_night_is_not_a_fault(self):
+        night = datetime(2026, 6, 15, 2, 0, tzinfo=UTC)
+        result = compute_zone_et0(
+            _full_inputs(timestamp=night, rs_wm2=0.0, temp_max_c=31.0, temp_min_c=15.0)
+        )
+        assert result is not None and not result.rs_estimated
+
+    def test_missing_radiation_estimated_or_none(self):
+        assert compute_zone_et0(_full_inputs(rs_wm2=None)) is None
+        estimated = compute_zone_et0(_full_inputs(rs_wm2=None, temp_max_c=31.0, temp_min_c=15.0))
+        assert estimated is not None and estimated.rs_estimated
+
+    def test_dead_anemometer_uses_two_metres_per_second(self):
+        calm_day = compute_zone_et0(_full_inputs(wind_ms=0.0, wind_max_24h_ms=0.0))
+        two = compute_zone_et0(_full_inputs(wind_ms=2.0))
+        assert calm_day.wind_estimated and not two.wind_estimated
+        assert calm_day.et0_mm_per_h == pytest.approx(two.et0_mm_per_h)
+        # A calm hour on a windy day is real calm.
+        lull = compute_zone_et0(_full_inputs(wind_ms=0.0, wind_max_24h_ms=6.0))
+        assert not lull.wind_estimated and lull.et0_mm_per_h < two.et0_mm_per_h
+        # No wind reading at all: FAO-56's 2 m/s rather than no ET₀.
+        assert compute_zone_et0(_full_inputs(wind_ms=None)).wind_estimated
+
+    def test_hargreaves_rs(self):
+        # Rs/Ra = kRs·√ΔT: 0.16 × √16 = 0.64.
+        assert hargreaves_rs_mjm2h(4.0, 31.0, 15.0) == pytest.approx(2.56)
+        assert hargreaves_rs_mjm2h(4.0, 10.0, 12.0) == 0.0  # inverted range → 0
 
     def test_works_without_lat_lon(self):
         # No lat/lon → falls back to 0.75 mid-band heuristic; should still

@@ -43,6 +43,21 @@ def _owner_zone(model: type[AgriBase]) -> ColumnElement:
     return func.coalesce(AnalyticsDevice.zone_id, model.zone_id)
 
 
+def _latest_first(model: type) -> tuple:
+    """ORDER BY for "the latest row", deterministic on shared timestamps.
+
+    Historical data holds parallel streams saved without a device id (several
+    rows, different values, one timestamp): rows with a device come first,
+    then the most recently stored.
+    """
+    order = [model.timestamp.desc()]
+    if hasattr(model, "device_id"):
+        order.append(model.device_id.is_(None))
+    if hasattr(model, "id"):
+        order.append(model.id.desc())
+    return tuple(order)
+
+
 def _with_device_join(stmt, model: type[AgriBase]):
     """LEFT JOIN ``analytics_device`` on ``model.device_id`` so ``_owner_user`` /
     ``_owner_zone`` can resolve. LEFT so non-device rows (``device_id`` NULL)
@@ -107,6 +122,26 @@ class AgriMainDBClient:
                 model.timestamp < end,
             )
         )
+
+    @staticmethod
+    def value_range(
+        session: Session,
+        model: type[ModelT],
+        *,
+        zone_id: int,
+        start: datetime,
+        end: datetime,
+    ) -> tuple[float | None, float | None]:
+        """``(min, max)`` of ``model.value`` over ``[start, end)`` for ``zone_id``;
+        ``(None, None)`` when no rows match."""
+        row = session.execute(
+            _with_device_join(select(func.min(model.value), func.max(model.value)), model).where(
+                _owner_zone(model) == zone_id,
+                model.timestamp >= start,
+                model.timestamp < end,
+            )
+        ).one()
+        return row[0], row[1]
 
     @staticmethod
     def sum_value(
@@ -180,7 +215,7 @@ class AgriMainDBClient:
         Mirrors the Django ``_latest`` adapter helper.
         """
         return session.scalars(
-            select(model).where(*criteria).order_by(model.timestamp.desc()).limit(1)
+            select(model).where(*criteria).order_by(*_latest_first(model)).limit(1)
         ).first()
 
     @staticmethod
@@ -200,7 +235,7 @@ class AgriMainDBClient:
             stmt = stmt.where(_owner_zone(model) == zone_id)
         else:
             stmt = stmt.where(_owner_user(model) == user_id)
-        return session.scalars(stmt.order_by(model.timestamp.desc()).limit(1)).first()
+        return session.scalars(stmt.order_by(*_latest_first(model)).limit(1)).first()
 
     @staticmethod
     def first_by(
