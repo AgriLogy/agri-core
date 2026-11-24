@@ -175,7 +175,7 @@ def test_compute_et0_for_zone_none_when_a_sensor_missing(session: Session) -> No
     assert compute_et0_for_zone(session, zid, end=END) is None
 
 
-def test_compute_et0_for_zone_estimates_a_dead_pyranometer(session: Session) -> None:
+def test_compute_et0_for_zone_estimates_a_pyranometer_seeing_no_sun(session: Session) -> None:
     uid = _make_user(session, lat=31.6, lon=-8.0)
     zid = _make_zone(session, uid)
     _seed_full_hour(session, zid, uid)

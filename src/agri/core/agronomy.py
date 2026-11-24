@@ -286,12 +286,13 @@ HARGREAVES_KRS = 0.16
 """FAO-56 eq. 50 adjustment coefficient: 0.16 for interior locations (where
 land mass dominates), 0.19 for coastal ones."""
 
-DEAD_PYRANOMETER_RA_MJM2H = 0.3
+NO_SUN_RA_MJM2H = 0.3
 """Above this hourly extraterrestrial radiation (~85 W/m²) the sun is well up:
-a pyranometer reading ~0 W/m² is a fault, since even overcast skies give
-diffuse light."""
+a pyranometer reading ~0 W/m² does not see the sky (installed in the shade,
+covered, or faulty), since even overcast skies give diffuse light. Its value
+does not represent the field."""
 
-DEAD_PYRANOMETER_RS_WM2 = 1.0
+NO_SUN_RS_WM2 = 1.0
 
 DEFAULT_WIND_MS = 2.0
 """FAO-56's stand-in for missing wind speed at 2 m (§ "Missing data")."""
@@ -626,11 +627,12 @@ class Et0Inputs:
     wind_height_m: float = 2.0
     temp_max_c: float | None = None
     """Max / min air temperature over the last 24 h: lets the handler estimate
-    solar radiation (FAO-56 eq. 50) when the pyranometer is dead."""
+    solar radiation (FAO-56 eq. 50) when the pyranometer sees no sun."""
     temp_min_c: float | None = None
     wind_max_24h_ms: float | None = None
-    """Highest wind speed over the last 24 h: 0 means a dead anemometer (a
-    full day of perfect calm does not happen), so ET₀ uses 2 m/s."""
+    """Highest wind speed over the last 24 h. 0 means an anemometer that feels
+    no air (in a closed or sheltered space, or faulty; a full day of perfect
+    calm does not happen outdoors), so ET₀ uses 2 m/s."""
 
 
 @dataclass
@@ -675,10 +677,12 @@ def compute_zone_et0(inputs: Et0Inputs) -> ZoneEt0 | None:
 
     * pressure missing or implausible (``PRESSURE_PLAUSIBLE_HPA``) → the
       elevation's standard pressure (eq. 7);
-    * solar radiation missing, or ~0 while the sun is well up (a dead
-      pyranometer) → estimated from the 24 h temperature range (eq. 50), when
+    * solar radiation missing, or ~0 while the sun is well up (a pyranometer
+      that sees no sun: shaded, covered or faulty) → estimated from the 24 h
+      temperature range (eq. 50), when
       Ra and that range are known. Otherwise a missing Rs still yields None;
-    * wind missing, or 0 for the whole last 24 h (a dead anemometer) → 2 m/s
+    * wind missing, or 0 for the whole last 24 h (an anemometer that feels no air:
+      enclosed, sheltered or faulty) → 2 m/s
       at 2 m.
     """
     if any(v is None for v in (inputs.temp_c, inputs.rh_pct)):
@@ -708,14 +712,12 @@ def compute_zone_et0(inputs: Et0Inputs) -> ZoneEt0 | None:
     )
 
     rs_mjm2h = wperm2_to_mjm2_per_hour(inputs.rs_wm2) if inputs.rs_wm2 is not None else None
-    sensor_dead = inputs.rs_wm2 is None or (
-        inputs.rs_wm2 < DEAD_PYRANOMETER_RS_WM2
-        and ra_mjm2h is not None
-        and ra_mjm2h > DEAD_PYRANOMETER_RA_MJM2H
+    sensor_blind = inputs.rs_wm2 is None or (
+        inputs.rs_wm2 < NO_SUN_RS_WM2 and ra_mjm2h is not None and ra_mjm2h > NO_SUN_RA_MJM2H
     )
     rs_estimated = False
     if (
-        sensor_dead
+        sensor_blind
         and ra_mjm2h is not None
         and inputs.temp_max_c is not None
         and inputs.temp_min_c is not None
