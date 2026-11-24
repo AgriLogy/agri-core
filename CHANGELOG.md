@@ -1,6 +1,22 @@
 # CHANGELOG
 
 
+## v0.34.0 (2026-11-24)
+
+### Features
+
+- **stations**: Verdict per sensor in the exposure report
+  ([#104](https://github.com/AgriLogy/agri-core/pull/104),
+  [`3432916`](https://github.com/AgriLogy/agri-core/commit/343291694bba90febb3e8cfdeb45228c8e84f22b))
+
+ExposureReport gains checked (the signals the data could judge) and sensors: solar / wind /
+  temperature are each sheltered (a signal fired), ok (checked, none fired) or not_checked (sensor
+  missing, overcast or calm day, too few hours). A calm reference day and a day without a real
+  temperature swing now count as not checked instead of fine.
+
+Closes #103
+
+
 ## v0.33.0 (2026-11-24)
 
 ### Documentation
