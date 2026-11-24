@@ -1,6 +1,42 @@
 # CHANGELOG
 
 
+## v0.33.0 (2026-11-24)
+
+### Documentation
+
+- **agronomy**: Sensors that see no sun / feel no air are not necessarily dead
+  ([#100](https://github.com/AgriLogy/agri-core/pull/100),
+  [`af67109`](https://github.com/AgriLogy/agri-core/commit/af671098486de78ba2fc3edde55148bab8f1ed4e))
+
+* docs(agronomy): a pyranometer reading 0 at noon sees no sun, it is not necessarily dead
+
+Router02's pyranometer works but is installed in a dark spot. Rename the rule's constants and
+  wording (shaded, covered or faulty); behaviour is unchanged.
+
+Refs #98
+
+* docs(agronomy): an anemometer reading 0 all day feels no air, it is not necessarily dead
+
+Router02's anemometer works but sits in a closed space. Wording only.
+
+### Features
+
+- **stations**: Detect a weather station installed sheltered or indoors
+  ([#102](https://github.com/AgriLogy/agri-core/pull/102),
+  [`6d22807`](https://github.com/AgriLogy/agri-core/commit/6d228079e85bb3eea2f4d04e22df6c3c27c8d69a))
+
+assess_station_exposure() compares a day of a station's hourly means with an outdoor reference for
+  the same place and reports four signals: no_sun (pyranometer ~0 in daylight), no_wind (0 all day
+  while the reference is windy), damped_temperature (range < half the reference range) and
+  warm_nights (>= 4 C warmer than outside at night). Two or more signals -> sheltered, one ->
+  suspect. Pure, no I/O; missing sensors are skipped.
+
+Router02's real day (dark, closed space) is the test case: all four signals, sheltered.
+
+Closes #101
+
+
 ## v0.32.2 (2026-11-24)
 
 ### Bug Fixes
