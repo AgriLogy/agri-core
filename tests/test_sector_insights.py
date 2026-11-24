@@ -277,3 +277,52 @@ def test_flat_trend_reads_as_stable():
         today=TODAY,
     )
     assert "tendance stable" in v["message"] and "0/sem" not in v["message"]
+
+
+# --- early season ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("lang", "label", "fragment"),
+    [
+        ("fr", "Culture en démarrage", "NDVI bas attendu à ce stade"),
+        ("en", "Crop establishing", "Low NDVI is expected at this stage"),
+        ("ar", "المحصول في بداية النمو", "انخفاض NDVI متوقع"),
+    ],
+)
+def test_low_ndvi_at_crop_start_is_expected(lang, label, fragment):
+    v = interpret_vegetation(
+        ndvi_points=_series([0.19, 0.2, 0.2, 0.21]),
+        soil_moisture_pct=35.0,
+        critical_moisture_pct=25.0,
+        depletion_ratio=None,
+        today=TODAY,
+        lang=lang,
+        early_season=True,
+    )
+    assert v["status"] == "healthy" and v["label"] == label
+    assert fragment in v["message"] and ".." not in v["message"]
+
+
+def test_early_season_still_flags_dry_soil():
+    v = interpret_vegetation(
+        ndvi_points=_series([0.2, 0.2, 0.21]),
+        soil_moisture_pct=15.0,
+        critical_moisture_pct=25.0,
+        depletion_ratio=None,
+        today=TODAY,
+        early_season=True,
+    )
+    assert v["status"] == "water_stress"
+
+
+def test_without_early_season_low_ndvi_is_still_low_vigor():
+    v = interpret_vegetation(
+        ndvi_points=_series([0.14, 0.17, 0.2, 0.23]),
+        soil_moisture_pct=35.0,
+        critical_moisture_pct=25.0,
+        depletion_ratio=None,
+        today=TODAY,
+    )
+    assert v["status"] == "low_vigor_other"
+    assert "par semaine" in v["message"] and ".." not in v["message"]

@@ -305,7 +305,7 @@ VEG_CASES = [
         {"ndvi": DECLINING, "soil": 18.0},
         "water_stress",
         {
-            "fr": ["NDVI 0,48 le 23/11", "tendance −0,10/sem.", "humidité du sol 18 %"],
+            "fr": ["NDVI 0,48 le 23/11", "tendance −0,10 par semaine", "humidité du sol 18 %"],
             "en": [
                 "NDVI 0.48 on 23 Nov",
                 "trend -0.10/week",
@@ -375,7 +375,7 @@ VEG_CASES = [
         {"ndvi": _series([0.6, 0.65, 0.7, 0.75]), "soil": 20.0},
         "healthy",
         {
-            "fr": ["tendance +0,07/sem.", "irriguer avant l'apparition du stress"],
+            "fr": ["tendance +0,07 par semaine", "irriguer avant l'apparition du stress"],
             "en": ["trend +0.07/week", "irrigate before stress sets in"],
             "ar": ["الاتجاه +0.07 أسبوعيًا", "قم بالري قبل ظهور الإجهاد"],
         },
