@@ -1,6 +1,22 @@
 # CHANGELOG
 
 
+## v0.32.1 (2026-11-24)
+
+### Bug Fixes
+
+- **agronomy**: Low NDVI at crop start reads as expected, not low vigour
+  ([#97](https://github.com/AgriLogy/agri-core/pull/97),
+  [`ddcc38b`](https://github.com/AgriLogy/agri-core/commit/ddcc38bd234d5f4f23b581c0102a737b94c7063d))
+
+interpret_vegetation(early_season=True): a low but not declining NDVI on soil that is neither dry
+  nor waterlogged is reported as 'Culture en démarrage' (status healthy) in fr/en/ar, instead of
+  'low vigour, look for another cause'. Dry or wet soil still wins. French trend wording '/sem.'
+  becomes 'par semaine' (it produced '/sem..').
+
+Closes #96
+
+
 ## v0.32.0 (2026-11-23)
 
 ### Features
