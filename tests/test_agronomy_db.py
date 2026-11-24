@@ -169,10 +169,46 @@ def test_compute_et0_for_zone_none_when_a_sensor_missing(session: Session) -> No
     uid = _make_user(session)
     zid = _make_zone(session, uid)
     _seed_full_hour(session, zid, uid)
-    # Drop the pressure readings → a required input is missing for the slot.
-    session.query(AnalyticsPressureweather).delete()
+    # Drop the temperature readings → a required input is missing for the slot.
+    session.query(AnalyticsTemperatureweather).delete()
     session.flush()
     assert compute_et0_for_zone(session, zid, end=END) is None
+
+
+def test_compute_et0_for_zone_estimates_a_dead_pyranometer(session: Session) -> None:
+    uid = _make_user(session, lat=31.6, lon=-8.0)
+    zid = _make_zone(session, uid)
+    _seed_full_hour(session, zid, uid)
+    session.query(AnalyticsSolarradiation).update({"value": 0.0})
+    # The day's temperature range, read over the 24 h before the slot.
+    _add_reading(session, AnalyticsTemperatureweather, zid, uid, END - dt.timedelta(hours=8), 12.0)
+    _add_reading(session, AnalyticsTemperatureweather, zid, uid, END - dt.timedelta(hours=3), 29.0)
+    session.flush()
+
+    result = compute_et0_for_zone(session, zid, end=END)
+    assert result is not None and result.rs_estimated
+    assert result.et0_mm_per_h > 0.2  # noon at the end of May, not 0
+
+
+def test_value_range_and_deterministic_latest(session: Session) -> None:
+    uid = _make_user(session)
+    zid = _make_zone(session, uid)
+    M = AnalyticsTemperatureweather
+    for value in (14.0, 27.0, 21.0):
+        _add_reading(session, M, zid, uid, MID, value)
+    session.flush()
+    start = END - dt.timedelta(hours=1)
+    assert AgriMainDBClient.value_range(session, M, zone_id=zid, start=start, end=END) == (
+        14.0,
+        27.0,
+    )
+    assert AgriMainDBClient.value_range(session, M, zone_id=999, start=start, end=END) == (
+        None,
+        None,
+    )
+    # Three rows at one timestamp, no device: always the last stored.
+    picks = {AgriMainDBClient.latest(session, M, M.zone_id == zid).value for _ in range(5)}
+    assert picks == {21.0}
 
 
 def test_compute_et0_for_zone_none_when_zone_unknown(session: Session) -> None:
