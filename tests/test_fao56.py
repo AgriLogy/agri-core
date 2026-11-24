@@ -255,15 +255,16 @@ class TestComputeZoneEt0:
         assert not good.pressure_estimated and bad.pressure_estimated
         assert bad.et0_mm_per_h == pytest.approx(good.et0_mm_per_h, rel=0.02)
 
-    def test_dead_pyranometer_at_noon_is_estimated(self):
-        # Sun well up, sensor reading 0: Rs from the 24 h temperature range.
+    def test_pyranometer_seeing_no_sun_at_noon_is_estimated(self):
+        # Sun well up, sensor reading 0 (e.g. installed in the shade):
+        # Rs from the 24 h temperature range.
         dead = compute_zone_et0(_full_inputs(rs_wm2=0.0, temp_max_c=31.0, temp_min_c=15.0))
         working = compute_zone_et0(_full_inputs(rs_wm2=700.0))
         assert dead.rs_estimated and not working.rs_estimated
         assert dead.et0_mm_per_h > 0.3  # a summer noon hour, not 0
         assert dead.et0_mm_per_h == pytest.approx(working.et0_mm_per_h, rel=0.35)
 
-    def test_dead_pyranometer_without_temperature_range_is_kept(self):
+    def test_blind_pyranometer_without_temperature_range_is_kept(self):
         # No range to estimate from: the sensor value stands (and stays 0-ish).
         result = compute_zone_et0(_full_inputs(rs_wm2=0.0))
         assert result is not None and not result.rs_estimated
