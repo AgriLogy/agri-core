@@ -6,6 +6,9 @@ import math
 from datetime import UTC, datetime, timedelta
 
 from agri.core.station_exposure import (
+    SENSOR_NOT_CHECKED,
+    SENSOR_OK,
+    SENSOR_SHELTERED,
     STATUS_INSUFFICIENT,
     STATUS_OK,
     STATUS_SHELTERED,
@@ -51,6 +54,7 @@ def test_a_well_installed_station_is_ok():
     )
     assert report.status == STATUS_OK and report.signals == []
     assert report.hours_compared == 24
+    assert report.sensors == {"solar": SENSOR_OK, "wind": SENSOR_OK, "temperature": SENSOR_OK}
 
 
 # Router02, 2026-11-23 14:00 → 11-24 14:00 UTC: (hour, station °C, Open-Meteo °C,
@@ -87,13 +91,25 @@ def test_router02_enclosed_station_is_sheltered():
     detail = {s.code: s.detail for s in report.signals}
     assert detail["damped_temperature"]["station_range_c"] == 4.0
     assert detail["warm_nights"]["mean_bias_c"] >= 4.0
+    assert report.sensors == {
+        "solar": SENSOR_SHELTERED,
+        "wind": SENSOR_SHELTERED,
+        "temperature": SENSOR_SHELTERED,
+    }
     d = report.as_dict()
     assert d["status"] == "sheltered" and len(d["signals"]) == 4
+    assert d["sensors"]["solar"] == "sheltered" and len(d["checked"]) == 4
 
 
 def test_only_a_shaded_pyranometer_is_suspect():
     report = assess_station_exposure(_day(lambda h, t, w, rs: (t, 0.75 * w, 5.0)))
     assert report.status == STATUS_SUSPECT and report.codes == ["no_sun"]
+    # Only the pyranometer is in the shade: wind and temperature read outdoors.
+    assert report.sensors == {
+        "solar": SENSOR_SHELTERED,
+        "wind": SENSOR_OK,
+        "temperature": SENSOR_OK,
+    }
 
 
 def test_a_calm_day_is_not_a_sheltered_anemometer():
@@ -110,7 +126,9 @@ def test_a_calm_day_is_not_a_sheltered_anemometer():
         )
         for h in _day(lambda h, t, w, rs: (t, 0.0, rs))
     ]
-    assert assess_station_exposure(hours).status == STATUS_OK
+    report = assess_station_exposure(hours)
+    assert report.status == STATUS_OK
+    assert report.sensors["wind"] == SENSOR_NOT_CHECKED  # calm day: can't tell
 
 
 def test_overcast_day_does_not_trip_no_sun():
@@ -127,13 +145,20 @@ def test_overcast_day_does_not_trip_no_sun():
         )
         for h in _day(lambda h, t, w, rs: (t, 0.75 * w, rs))
     ]
-    assert "no_sun" not in assess_station_exposure(hours).codes
+    report = assess_station_exposure(hours)
+    assert "no_sun" not in report.codes
+    assert report.sensors["solar"] == SENSOR_NOT_CHECKED
 
 
 def test_missing_sensors_are_skipped_not_guessed():
     # Temperature-only station, tracking outside: judged ok on what it has.
     report = assess_station_exposure(_day(lambda h, t, w, rs: (t, None, None)))
     assert report.status == STATUS_OK
+    assert report.sensors == {
+        "solar": SENSOR_NOT_CHECKED,
+        "wind": SENSOR_NOT_CHECKED,
+        "temperature": SENSOR_OK,
+    }
 
 
 def test_too_few_hours_is_insufficient():
