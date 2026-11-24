@@ -281,7 +281,7 @@ class TestComputeZoneEt0:
         estimated = compute_zone_et0(_full_inputs(rs_wm2=None, temp_max_c=31.0, temp_min_c=15.0))
         assert estimated is not None and estimated.rs_estimated
 
-    def test_dead_anemometer_uses_two_metres_per_second(self):
+    def test_anemometer_feeling_no_air_uses_two_metres_per_second(self):
         calm_day = compute_zone_et0(_full_inputs(wind_ms=0.0, wind_max_24h_ms=0.0))
         two = compute_zone_et0(_full_inputs(wind_ms=2.0))
         assert calm_day.wind_estimated and not two.wind_estimated

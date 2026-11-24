@@ -630,8 +630,9 @@ class Et0Inputs:
     solar radiation (FAO-56 eq. 50) when the pyranometer sees no sun."""
     temp_min_c: float | None = None
     wind_max_24h_ms: float | None = None
-    """Highest wind speed over the last 24 h: 0 means a dead anemometer (a
-    full day of perfect calm does not happen), so ET₀ uses 2 m/s."""
+    """Highest wind speed over the last 24 h. 0 means an anemometer that feels
+    no air (in a closed or sheltered space, or faulty; a full day of perfect
+    calm does not happen outdoors), so ET₀ uses 2 m/s."""
 
 
 @dataclass
@@ -680,7 +681,8 @@ def compute_zone_et0(inputs: Et0Inputs) -> ZoneEt0 | None:
       that sees no sun: shaded, covered or faulty) → estimated from the 24 h
       temperature range (eq. 50), when
       Ra and that range are known. Otherwise a missing Rs still yields None;
-    * wind missing, or 0 for the whole last 24 h (a dead anemometer) → 2 m/s
+    * wind missing, or 0 for the whole last 24 h (an anemometer that feels no air:
+      enclosed, sheltered or faulty) → 2 m/s
       at 2 m.
     """
     if any(v is None for v in (inputs.temp_c, inputs.rh_pct)):
