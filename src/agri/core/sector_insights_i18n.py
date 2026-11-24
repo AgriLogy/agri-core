@@ -71,6 +71,7 @@ LABELS: dict[str, dict[str, str]] = {
         "low_vigor_other": "Faible vigueur (cause non hydrique)",
         "declining": "Vigueur en baisse",
         "insufficient_data": "Données insuffisantes",
+        "establishing": "Culture en démarrage",
     },
     "en": {
         "healthy": "Healthy vegetation",
@@ -79,6 +80,7 @@ LABELS: dict[str, dict[str, str]] = {
         "low_vigor_other": "Low vigour (not water-related)",
         "declining": "Declining vigour",
         "insufficient_data": "Insufficient data",
+        "establishing": "Crop establishing",
     },
     "ar": {
         "healthy": "نباتات سليمة",
@@ -87,6 +89,7 @@ LABELS: dict[str, dict[str, str]] = {
         "low_vigor_other": "ضعف في النمو (سبب غير مائي)",
         "declining": "تراجع في قوة النمو",
         "insufficient_data": "بيانات غير كافية",
+        "establishing": "المحصول في بداية النمو",
     },
 }
 
@@ -117,7 +120,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         # interpret_vegetation()
         "basis_ndvi": "NDVI {ndvi} le {day}",
         "basis_trend_stable": "tendance stable",
-        "basis_trend": "tendance {trend}/sem.",
+        "basis_trend": "tendance {trend} par semaine",
         "basis_soil_probe": "humidité du sol {moisture} %",
         "basis_soil_balance": "bilan hydrique (déficit à {pct} % de la RFU)",
         "basis_sep": ", ",
@@ -137,6 +140,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         ),
         "veg_no_soil": "{basis}. Pas de mesure du sol pour en trouver la cause.",
         "veg_healthy": "{basis}.",
+        "veg_establishing": (
+            "{basis}. NDVI bas attendu à ce stade (semis, levée) : rien d'anormal pour l'instant."
+        ),
         "veg_healthy_dry": (
             " Végétation encore vigoureuse mais sol sec : irriguer avant l'apparition du stress."
         ),
@@ -180,6 +186,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         ),
         "veg_no_soil": "{basis}. No soil reading to find the cause.",
         "veg_healthy": "{basis}.",
+        "veg_establishing": (
+            "{basis}. Low NDVI is expected at this stage (sowing, emergence): "
+            "nothing abnormal so far."
+        ),
         "veg_healthy_dry": (
             " Vegetation still vigorous but the soil is dry: irrigate before stress sets in."
         ),
@@ -215,6 +225,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         ),
         "veg_no_soil": "{basis}. لا يوجد قياس للتربة لتحديد السبب.",
         "veg_healthy": "{basis}.",
+        "veg_establishing": (
+            "{basis}. انخفاض NDVI متوقع في هذه المرحلة (الزرع والإنبات): لا شيء غير طبيعي حاليًا."
+        ),
         "veg_healthy_dry": " النباتات لا تزال قوية لكن التربة جافة: قم بالري قبل ظهور الإجهاد.",
     },
 }

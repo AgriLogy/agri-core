@@ -370,8 +370,14 @@ def interpret_vegetation(
     depletion_ratio: float | None,
     today: date,
     lang: str = "fr",
+    early_season: bool = False,
 ) -> dict[str, Any]:
     """Read NDVI (level + trend) together with soil water.
+
+    ``early_season`` (the crop is at its initial stage: sowing / emergence)
+    makes a LOW but not declining NDVI on soil that is neither dry nor
+    waterlogged read as expected ("Culture en démarrage", status ``healthy``)
+    instead of "low vigour, other cause". Dry or wet soil still wins.
 
     ``lang`` (fr | ar | en, unknown → fr) only changes ``label`` and ``message``.
 
@@ -402,6 +408,7 @@ def interpret_vegetation(
         dry = wet = False
         soil_basis = None
 
+    label_key: str | None = None
     low = latest is not None and latest[1] < NDVI_LOW_VIGOR
     declining = trend is not None and trend <= NDVI_DECLINE_PER_WEEK
     weak = low or declining
@@ -429,6 +436,11 @@ def interpret_vegetation(
         status = "water_stress" if dry else "insufficient_data"
         message = t["veg_no_image"].format(soil=soil_basis) + (t["veg_no_image_dry"] if dry else "")
         confidence = "low"
+    elif early_season and low and not declining and not dry and not wet:
+        status = "healthy"
+        message = t["veg_establishing"].format(basis=basis)
+        confidence = "medium"
+        label_key = "establishing"
     elif weak and dry:
         status = "water_stress"
         message = t["veg_stress"].format(basis=basis)
@@ -454,7 +466,7 @@ def interpret_vegetation(
 
     return {
         "status": status,
-        "label": LABELS[lang][status],
+        "label": LABELS[lang][label_key or status],
         "message": message[0].upper() + message[1:],
         "confidence": confidence,
         "ndvi": (
