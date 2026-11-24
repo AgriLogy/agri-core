@@ -1,6 +1,32 @@
 # CHANGELOG
 
 
+## v0.32.2 (2026-11-24)
+
+### Bug Fixes
+
+- **agronomy**: Et0 survives a dead pyranometer, dead anemometer or wrong pressure unit
+  ([#99](https://github.com/AgriLogy/agri-core/pull/99),
+  [`e9cb6fe`](https://github.com/AgriLogy/agri-core/commit/e9cb6fe17aaeb7f84fd79f65362bdba69372b9c7))
+
+A station whose pyranometer reads 0 W/m2 at noon, whose anemometer reads 0 for a whole day, or which
+  sends pressure as hPa x10 produced ET0 = 0 every hour (Router02 since 2026-11-22). Apply FAO-56's
+  missing-data rules in compute_zone_et0, each flagged on ZoneEt0:
+
+- pressure missing or outside 500-1100 hPa -> elevation pressure (eq. 7) - Rs missing, or ~0 while
+  hourly Ra > 0.3 MJ/m2/h -> Hargreaves Rs from the 24 h temperature range (eq. 50, kRs 0.16) - wind
+  missing, or 0 for the whole past 24 h -> 2 m/s
+
+compute_et0_for_zone reads the 24 h temperature range and wind maximum (new
+  AgriMainDBClient.value_range). A Router02-like day goes from 0 to 2.96 mm; Open-Meteo's FAO ET0
+  there is 2.96 mm.
+
+AgriMainDBClient.latest / latest_reading are deterministic on shared timestamps: rows with a device
+  first, then the newest stored.
+
+Closes #98
+
+
 ## v0.32.1 (2026-11-24)
 
 ### Bug Fixes
